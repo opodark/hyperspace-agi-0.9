@@ -1,7 +1,6 @@
 # HyperSpace-AGI v5.9 - Docker Compose Configuration
 # Optimized for Apple Silicon M-series (16GB RAM)
 # OOM fix: NUM_PARALLEL=1, MAX_LOADED_MODELS=1, KEEP_ALIVE=5m
-# -> un solo modello in memoria alla volta, swap automatico
 
 services:
   ollama:
@@ -151,6 +150,26 @@ services:
       - hyperspace-net
     volumes:
       - cp_runtime:/control-plane/control-plane/runtime
+
+  dashboard:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.dashboard
+    container_name: hyperspace-dashboard
+    ports:
+      - "8769:8769"
+    environment:
+      - OLLAMA_BASE_URL=http://ollama:11434
+      - CONTROL_PLANE_URL=http://control-plane:8768
+      - AUTHORITY_URL=http://authority:8766
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    restart: unless-stopped
+    depends_on:
+      - ollama
+      - control-plane
+    networks:
+      - hyperspace-net
 
 volumes:
   ollama_models:
