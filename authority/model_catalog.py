@@ -1,13 +1,10 @@
-# HyperSpace-AGI v5.9 - Model Catalog
+# HyperSpace-AGI v5.9 - Model Catalog (updated: REASONER -> Gemma 4 12B)
 # Catalogo modelli locali supportati con Ollama tags e scoring
-# Target: MacBook Air M5 (14B limit)
+# Target: MacBook Air M5 (16GB RAM, 14B+ limit con Q4)
+# Gemma 4 12B: batiai/gemma4-12b:q4 | 256K ctx | multimodal | 6.9GB RAM
 from __future__ import annotations
 from shared.domain.models import ModelProfile, ModelCatalogEntry
 
-
-# ---------------------------------------------------------------------------
-# Catalogo modelli v5.9
-# ---------------------------------------------------------------------------
 
 MODEL_CATALOG: list[ModelCatalogEntry] = [
 
@@ -104,36 +101,39 @@ MODEL_CATALOG: list[ModelCatalogEntry] = [
     ),
 
     # ------------------------------------------------------------------
-    # REASONER: DeepSeek-R1 14B - deep reasoning, contested memory
+    # REASONER: Gemma 4 12B - deep reasoning, long context, multimodal
+    # Sostituisce DeepSeek-R1:14b a partire da v5.9
+    # Ollama tag: batiai/gemma4-12b:q4 (Q4_K_M, ~6.9GB RAM, 256K ctx)
+    # Rilasciato: giugno 2026 | multimodale: testo + immagini + audio + video
     # ------------------------------------------------------------------
     ModelCatalogEntry(
         profile=ModelProfile(
-            model_id='deepseek-r1:14b',
-            family='deepseek',
-            size_class='14b',
+            model_id='gemma4:12b',
+            family='gemma',
+            size_class='12b',
             quantization='Q4_K_M',
-            ram_required_gb=10.5,
-            disk_size_gb=9.0,
-            supports_json_schema=False,
-            supports_tools=False,
-            max_context_tokens=65536,
-            reasoning_score=96,
-            coding_score=70,
-            speed_score=45,
+            ram_required_gb=6.9,
+            disk_size_gb=7.0,
+            supports_json_schema=True,
+            supports_tools=True,
+            max_context_tokens=262144,  # 256K
+            reasoning_score=94,
+            coding_score=82,
+            speed_score=68,
         ),
-        ollama_tag='deepseek-r1:14b',
+        ollama_tag='batiai/gemma4-12b:q4',
         role='reasoner',
-        priority=9,
+        priority=10,
     ),
 
     # ------------------------------------------------------------------
-    # SMALL: Gemma 4 7B - task veloci, classificazione, routing
+    # SMALL: Gemma 3 9B - task veloci, classificazione, routing
     # ------------------------------------------------------------------
     ModelCatalogEntry(
         profile=ModelProfile(
-            model_id='gemma4:7b',
+            model_id='gemma3:9b',
             family='gemma',
-            size_class='7b',
+            size_class='9b',
             quantization='Q4_K_M',
             ram_required_gb=5.0,
             disk_size_gb=4.5,
@@ -152,7 +152,7 @@ MODEL_CATALOG: list[ModelCatalogEntry] = [
 
 
 def get_catalog() -> list[ModelCatalogEntry]:
-    """Restituisce il catalogo completo."""
+    """Restituisce il catalogo completo dei modelli disponibili."""
     return [e for e in MODEL_CATALOG if e.is_available]
 
 

@@ -1,6 +1,5 @@
-# HyperSpace-AGI v5.9 - Smart Router 4-level
-# Orchestra il routing: Classifier -> Authority/PolicyEngine -> ExecutionPlan
-# Level 1: agent  | Level 2: coder  | Level 3: reasoner  | Level 4: specialized
+# HyperSpace-AGI v5.9 - Smart Router 4-level (updated: PullExecutor integration)
+# Flow: Classifier -> RoutingContext -> authority/resolve -> PullExecutor -> ExecutionPlan
 from __future__ import annotations
 import httpx
 from shared.domain.models import (
@@ -10,6 +9,8 @@ from shared.domain.models import (
 )
 from shared.settings import settings
 from control_plane.request_classifier import RequestClassifier
+from control_plane.pull_executor import PullExecutor
+from node.ollama_pull_service import OllamaPullService
 
 _WORKLOAD_TO_LEVEL: dict[WorkloadType, int] = {
     WorkloadType.FAST_CHAT: 1,
@@ -23,32 +24,42 @@ _WORKLOAD_TO_LEVEL: dict[WorkloadType, int] = {
 
 class SmartRouter:
     """
-    Smart routing 4-level:
-    - Classifica la request in WorkloadProfile
-    - Delega la placement decision al Authority service (/resolve)
-    - Gestisce fallback locale se authority non raggiungibile
+    Smart routing 4-level v5.9.
+    Novita vs versione precedente:
+      - dopo authority/resolve, chiama PullExecutor.maybe_pull()
+      - se pull_decision=YES, il modello viene pullato prima dell'inferenza
+      - se pull fallisce, fallback automatico a default_agent_model
     """
 
     def __init__(
         self,
         authority_url: str | None = None,
         node_capabilities: list[NodeCapability] | None = None,
+        ollama_url: str | None = None,
     ) -> None:
         self.authority_url = authority_url or f'http://authority:{settings.authority_api_port}'
         self.classifier = RequestClassifier()
         self._node_capabilities: list[NodeCapability] = node_capabilities or []
+        _ollama = OllamaPullService(
+            ollama_url=ollama_url or settings.ollama_base_url,
+            timeout_seconds=settings.pull_timeout_seconds,
+        )
+        self._pull_executor = PullExecutor(
+            pull_service=_ollama,
+            fallback_model_id=settings.default_agent_model,
+        )
 
     def update_nodes(self, nodes: list[NodeCapability]) -> None:
-        """Aggiorna la lista di nodi disponibili."""
         self._node_capabilities = nodes
 
     async def route(self, request: UserRequest) -> ExecutionPlan:
         """
-        Flow principale:
+        Flow completo:
         1. Classifica workload
         2. Costruisce RoutingContext
         3. Chiama authority /resolve
-        4. Ritorna ExecutionPlan
+        4. PullExecutor: se pull_decision=YES, esegue pull
+        5. Ritorna ExecutionPlan con modello pronto
         """
         workload = self.classifier.classify(request)
         level = _WORKLOAD_TO_LEVEL.get(workload.workload_type, 1)
@@ -63,13 +74,14 @@ class SmartRouter:
         try:
             plan = await self._call_authority(ctx)
         except Exception as exc:
-            # Fallback locale se authority non disponibile
             plan = self._local_fallback(request.request_id, workload, str(exc))
+
+        # --- NUOVO v5.9: esegui pull se necessario ---
+        plan = await self._pull_executor.maybe_pull(plan)
 
         return plan
 
     async def _call_authority(self, ctx: RoutingContext) -> ExecutionPlan:
-        """HTTP POST a authority/resolve."""
         async with httpx.AsyncClient(timeout=10.0) as client:
             resp = await client.post(
                 f'{self.authority_url}/resolve',
@@ -79,15 +91,8 @@ class SmartRouter:
             return ExecutionPlan.model_validate(resp.json())
 
     def _local_fallback(
-        self,
-        request_id: str,
-        workload: WorkloadProfile,
-        reason: str,
+        self, request_id: str, workload: WorkloadProfile, reason: str,
     ) -> ExecutionPlan:
-        """
-        Fallback locale: usa il default model dal settings.
-        Usato quando authority non e raggiungibile.
-        """
         model_id = {
             WorkloadType.CODING_ASSISTANT: settings.default_coder_model,
             WorkloadType.DEEP_REASONING: settings.default_reasoner_model,
