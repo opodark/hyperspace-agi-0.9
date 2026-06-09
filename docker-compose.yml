@@ -1,8 +1,6 @@
 # HyperSpace-AGI v5.9 - Docker Compose Configuration
 # Optimized for Apple Silicon M5 (16GB RAM)
 
-version: '3.8'
-
 services:
   ollama:
     build:
@@ -35,10 +33,12 @@ services:
     ports:
       - "8080:8080"
     environment:
-      - OLLAMA_BASE_URL=http://ollama:11434
+      - OLLAMA_BASE_URL=http://host.docker.internal:11434
       - WEBUI_SECRET_KEY=hyperspace-agi-v59-secret-key
       - ENABLE_SIGNUP=false
       - ENABLE_ADMIN_EXPLORE=true
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     restart: unless-stopped
     depends_on:
       ollama:
