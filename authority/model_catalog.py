@@ -1,7 +1,5 @@
-# HyperSpace-AGI v5.9 - Model Catalog (updated: REASONER -> Gemma 4 12B)
-# Catalogo modelli locali supportati con Ollama tags e scoring
-# Target: MacBook Air M5 (16GB RAM, 14B+ limit con Q4)
-# Gemma 4 12B: batiai/gemma4-12b:q4 | 256K ctx | multimodal | 6.9GB RAM
+# HyperSpace-AGI v5.9 - Model Catalog
+# Tutti i modelli verificati su Ollama registry, max 9B per Mac M-series 16GB
 from __future__ import annotations
 from shared.domain.models import ModelProfile, ModelCatalogEntry
 
@@ -9,16 +7,17 @@ from shared.domain.models import ModelProfile, ModelCatalogEntry
 MODEL_CATALOG: list[ModelCatalogEntry] = [
 
     # ------------------------------------------------------------------
-    # AGENT: Qwen 3.5 7B - standard agent, planning, tool calling
+    # AGENT: Qwen 2.5 7B - standard agent, planning, tool calling
+    # Tag Ollama: qwen2.5:7b | 5.5GB RAM | 32K ctx
     # ------------------------------------------------------------------
     ModelCatalogEntry(
         profile=ModelProfile(
-            model_id='qwen3.5:7b',
+            model_id='qwen2.5:7b',
             family='qwen',
             size_class='7b',
             quantization='Q4_K_M',
             ram_required_gb=5.5,
-            disk_size_gb=4.8,
+            disk_size_gb=4.7,
             supports_json_schema=True,
             supports_tools=True,
             max_context_tokens=32768,
@@ -26,108 +25,38 @@ MODEL_CATALOG: list[ModelCatalogEntry] = [
             coding_score=70,
             speed_score=88,
         ),
-        ollama_tag='qwen3.5:7b',
+        ollama_tag='qwen2.5:7b',
         role='agent',
         priority=8,
     ),
 
     # ------------------------------------------------------------------
-    # AGENT: Qwen 3.5 9B - agent potenziato, contesto lungo
+    # CODER: Qwen 2.5 Coder 7B - code generation, refactoring
+    # Tag Ollama: qwen2.5-coder:7b | 5.5GB RAM | 32K ctx
     # ------------------------------------------------------------------
     ModelCatalogEntry(
         profile=ModelProfile(
-            model_id='qwen3.5:9b',
-            family='qwen',
-            size_class='9b',
-            quantization='Q4_K_M',
-            ram_required_gb=7.0,
-            disk_size_gb=6.0,
-            supports_json_schema=True,
-            supports_tools=True,
-            max_context_tokens=32768,
-            reasoning_score=78,
-            coding_score=75,
-            speed_score=80,
-        ),
-        ollama_tag='qwen3.5:9b',
-        role='agent',
-        priority=7,
-    ),
-
-    # ------------------------------------------------------------------
-    # CODER: Qwen Coder 9B - code generation, refactoring
-    # ------------------------------------------------------------------
-    ModelCatalogEntry(
-        profile=ModelProfile(
-            model_id='qwen-coder:9b',
+            model_id='qwen2.5-coder:7b',
             family='qwen-coder',
-            size_class='9b',
+            size_class='7b',
             quantization='Q4_K_M',
-            ram_required_gb=7.0,
-            disk_size_gb=6.0,
+            ram_required_gb=5.5,
+            disk_size_gb=4.7,
             supports_json_schema=True,
             supports_tools=False,
             max_context_tokens=32768,
-            reasoning_score=65,
+            reasoning_score=60,
             coding_score=92,
-            speed_score=78,
+            speed_score=85,
         ),
-        ollama_tag='qwen2.5-coder:9b',
+        ollama_tag='qwen2.5-coder:7b',
         role='coder',
         priority=9,
     ),
 
     # ------------------------------------------------------------------
-    # CODER: Qwen Coder 14B - code generation heavy (M5 limit)
-    # ------------------------------------------------------------------
-    ModelCatalogEntry(
-        profile=ModelProfile(
-            model_id='qwen-coder:14b',
-            family='qwen-coder',
-            size_class='14b',
-            quantization='Q4_K_M',
-            ram_required_gb=10.5,
-            disk_size_gb=9.0,
-            supports_json_schema=True,
-            supports_tools=False,
-            max_context_tokens=32768,
-            reasoning_score=72,
-            coding_score=96,
-            speed_score=60,
-        ),
-        ollama_tag='qwen2.5-coder:14b',
-        role='coder',
-        priority=8,
-    ),
-
-    # ------------------------------------------------------------------
-    # REASONER: Gemma 4 12B - deep reasoning, long context, multimodal
-    # Sostituisce DeepSeek-R1:14b a partire da v5.9
-    # Ollama tag: batiai/gemma4-12b:q4 (Q4_K_M, ~6.9GB RAM, 256K ctx)
-    # Rilasciato: giugno 2026 | multimodale: testo + immagini + audio + video
-    # ------------------------------------------------------------------
-    ModelCatalogEntry(
-        profile=ModelProfile(
-            model_id='gemma4:12b',
-            family='gemma',
-            size_class='12b',
-            quantization='Q4_K_M',
-            ram_required_gb=6.9,
-            disk_size_gb=7.0,
-            supports_json_schema=True,
-            supports_tools=True,
-            max_context_tokens=262144,  # 256K
-            reasoning_score=94,
-            coding_score=82,
-            speed_score=68,
-        ),
-        ollama_tag='batiai/gemma4-12b:q4',
-        role='reasoner',
-        priority=10,
-    ),
-
-    # ------------------------------------------------------------------
-    # SMALL: Gemma 3 9B - task veloci, classificazione, routing
+    # REASONER: Gemma 3 9B - deep reasoning, contesto lungo
+    # Tag Ollama: gemma3:9b | 7.0GB RAM | 128K ctx
     # ------------------------------------------------------------------
     ModelCatalogEntry(
         profile=ModelProfile(
@@ -135,16 +64,40 @@ MODEL_CATALOG: list[ModelCatalogEntry] = [
             family='gemma',
             size_class='9b',
             quantization='Q4_K_M',
-            ram_required_gb=5.0,
-            disk_size_gb=4.5,
+            ram_required_gb=7.0,
+            disk_size_gb=6.0,
             supports_json_schema=True,
-            supports_tools=False,
-            max_context_tokens=8192,
-            reasoning_score=60,
-            coding_score=55,
-            speed_score=95,
+            supports_tools=True,
+            max_context_tokens=131072,  # 128K
+            reasoning_score=88,
+            coding_score=72,
+            speed_score=70,
         ),
         ollama_tag='gemma3:9b',
+        role='reasoner',
+        priority=10,
+    ),
+
+    # ------------------------------------------------------------------
+    # SMALL: Phi-3.5 Mini 3.8B - routing/classificazione ultra-veloce
+    # Tag Ollama: phi3.5 | 2.8GB RAM | 128K ctx
+    # ------------------------------------------------------------------
+    ModelCatalogEntry(
+        profile=ModelProfile(
+            model_id='phi3.5',
+            family='phi',
+            size_class='4b',
+            quantization='Q4_K_M',
+            ram_required_gb=2.8,
+            disk_size_gb=2.2,
+            supports_json_schema=True,
+            supports_tools=False,
+            max_context_tokens=131072,
+            reasoning_score=58,
+            coding_score=52,
+            speed_score=97,
+        ),
+        ollama_tag='phi3.5',
         role='small',
         priority=6,
     ),
