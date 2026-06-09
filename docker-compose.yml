@@ -1,7 +1,7 @@
 # HyperSpace-AGI v5.9 - Docker Compose Configuration
 # Optimized for Apple Silicon M-series (16GB RAM)
-# Modelli verificati su Ollama registry
-# gemma4:12b richiede Ollama >= 0.30.4
+# OOM fix: NUM_PARALLEL=1, MAX_LOADED_MODELS=1, KEEP_ALIVE=5m
+# -> un solo modello in memoria alla volta, swap automatico
 
 services:
   ollama:
@@ -14,9 +14,10 @@ services:
     volumes:
       - ollama_models:/root/.ollama
     environment:
-      - OLLAMA_NUM_PARALLEL=2
+      - OLLAMA_NUM_PARALLEL=1
+      - OLLAMA_MAX_LOADED_MODELS=1
       - OLLAMA_MAX_QUEUE=512
-      - OLLAMA_KEEP_ALIVE=24h
+      - OLLAMA_KEEP_ALIVE=5m
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "ollama list || exit 1"]
