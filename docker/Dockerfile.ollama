@@ -1,6 +1,7 @@
 # Ollama container - local model engine for v5.9
-# Supports Qwen 3.5 7B/9B, Qwen Coder 9B/14B, Gemma 4, DeepSeek
-# Target: Apple Silicon M5 (14B max)
+# NOTA: ollama/ollama:latest ha gia ENTRYPOINT ["ollama"] e CMD ["serve"]
+# Non sovrascrivere CMD altrimenti diventa "ollama ollama serve"
+# Healthcheck usa wget (presente nell'immagine base, curl no)
 
 FROM ollama/ollama:latest
 
@@ -10,7 +11,7 @@ RUN mkdir -p /root/.ollama/models
 
 EXPOSE 11434
 
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:11434/api/tags || exit 1
+HEALTHCHECK --interval=30s --timeout=15s --start-period=20s --retries=5 \
+    CMD wget -qO- http://localhost:11434/api/tags > /dev/null 2>&1 || exit 1
 
-CMD ["ollama", "serve"]
+# Non serve CMD: l'immagine base esegue gia "ollama serve"
