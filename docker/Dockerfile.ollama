@@ -1,17 +1,13 @@
 # Ollama container - local model engine for v5.9
-# NOTA: ollama/ollama:latest ha gia ENTRYPOINT ["ollama"] e CMD ["serve"]
-# Non sovrascrivere CMD altrimenti diventa "ollama ollama serve"
-# Healthcheck usa wget (presente nell'immagine base, curl no)
+# NOTA: ollama/ollama ha gia ENTRYPOINT ["ollama"] CMD ["serve"] - non sovrascrivere
+# Healthcheck: usa il binario 'ollama' sempre presente nell'immagine
 
 FROM ollama/ollama:latest
-
-WORKDIR /ollama
 
 RUN mkdir -p /root/.ollama/models
 
 EXPOSE 11434
 
-HEALTHCHECK --interval=30s --timeout=15s --start-period=20s --retries=5 \
-    CMD wget -qO- http://localhost:11434/api/tags > /dev/null 2>&1 || exit 1
-
-# Non serve CMD: l'immagine base esegue gia "ollama serve"
+# 'ollama list' chiama le API REST interne - funziona senza curl/wget
+HEALTHCHECK --interval=20s --timeout=15s --start-period=30s --retries=5 \
+    CMD ollama list || exit 1
