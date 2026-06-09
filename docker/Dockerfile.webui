@@ -1,18 +1,10 @@
-# Open WebUI - frontend for HyperSpace-AGI v5.9
-# OpenAI-compatible API frontend connected to Ollama
+# Open WebUI container
+# Fix: usa il registry corretto ghcr.io (non Docker Hub)
+# Tag: main = ultimo build stabile dal branch main
 
-FROM openwebui/openwebui:latest
-
-WORKDIR /webui
+FROM ghcr.io/open-webui/open-webui:main
 
 EXPOSE 8080
 
 ENV OLLAMA_BASE_URL=http://ollama:11434 \
-    WEBUI_SECRET_KEY=hyperspace-agi-v59-secret-key \
-    ENABLE_SIGNUP=false \
-    ENABLE_ADMIN_EXPLORE=true
-
-HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
-    CMD curl -f http://localhost:8080/api/config || exit 1
-
-CMD ["/bin/sh", "-c", "/app/start.sh"]
+    WEBUI_SECRET_KEY=changeme-in-production

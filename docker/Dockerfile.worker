@@ -1,32 +1,25 @@
-# Worker container - dream validator + validation vote store for v5.9
-# Dream validation with voting, replay store, contested memory handling
+# Worker container - Dream Validator v2 + Vote Store + Replay Engine
+# Fix: usa requirements.txt invece di pyproject.toml
 
 FROM python:3.12-slim
 
 WORKDIR /worker
 
-RUN pip install --no-cache-dir \
-    pydantic==2.9.2 \
-    httpx==0.27.2 \
-    aiosqlite==0.20.0 \
-    python-dotenv==1.0.1 \
-    uvloop==0.20.0
+RUN apt-get update && apt-get install -y --no-install-recommends curl \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY requirements.txt /worker/requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
 
 COPY worker/ /worker/worker/
 COPY shared/ /worker/shared/
-COPY runtime/ /worker/runtime/
-COPY pyproject.toml /worker/
 
-RUN pip install --no-cache-dir -e .
+ENV PYTHONPATH=/worker
 
 EXPOSE 8767
 
 ENV WORKER_API_PORT=8767 \
-    OLLAMA_BASE_URL=http://ollama:11434 \
-    DREAM_VALIDATOR_ENABLED=true \
-    VALIDATION_VOTE_STORE_ENABLED=true \
-    DREAM_REPLAY_ENABLED=true \
-    CONTESTED_MEMORY_ENABLED=true
+    OLLAMA_BASE_URL=http://ollama:11434
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
     CMD curl -f http://localhost:8767/health || exit 1
