@@ -1,0 +1,33 @@
+{% if models %}
+<div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+  {% for model in models %}
+  <div class="card p-4 flex items-center justify-between">
+    <div>
+      <div class="font-mono text-sm text-purple-300">{{ model.name }}</div>
+      <div class="text-xs text-slate-500 mt-1">
+        {% if model.size %}
+          {{ (model.size / 1073741824) | round(1) }} GB
+        {% endif %}
+        {% if model.details and model.details.parameter_size %}
+          · {{ model.details.parameter_size }}
+        {% endif %}
+        {% if model.details and model.details.quantization_level %}
+          · {{ model.details.quantization_level }}
+        {% endif %}
+      </div>
+    </div>
+    <button class="text-xs text-red-400 hover:text-red-300 px-2 py-1 rounded border border-red-900 hover:border-red-700"
+            hx-delete="/ollama/model/{{ model.name }}"
+            hx-target="#models-section"
+            hx-confirm="Eliminare {{ model.name }}?"
+            hx-swap="innerHTML">
+      🗑
+    </button>
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<div class="card p-4 text-slate-500 text-sm">
+  Nessun modello caricato. Usa il form sotto per pullare un modello.
+</div>
+{% endif %}
