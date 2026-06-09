@@ -1,5 +1,6 @@
 # Control Plane container - Smart Router 4-level + PullExecutor + API v5.9
-# Fix: usa requirements.txt invece di pyproject.toml
+# FIX: la directory 'control-plane' ha un trattino -> non importabile da Python
+# Soluzione: COPY control-plane/ -> /control-plane/control_plane/ (underscore)
 
 FROM python:3.12-slim
 
@@ -11,7 +12,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl \
 COPY requirements.txt /control-plane/requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY control-plane/ /control-plane/control-plane/
+# CRITICO: copia con nome underscore per 'import control_plane'
+COPY control-plane/ /control-plane/control_plane/
 COPY shared/        /control-plane/shared/
 COPY authority/     /control-plane/authority/
 COPY worker/        /control-plane/worker/
