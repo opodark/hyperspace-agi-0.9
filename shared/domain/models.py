@@ -59,29 +59,27 @@ class MemoryTier(StrEnum):
     SEMANTIC = 'semantic'
     SPECULATIVE = 'speculative'
     QUARANTINED = 'quarantined'
-    CONTESTED = 'contested'          # NEW v5.9: memoria contestata attiva
+    CONTESTED = 'contested'
 
 class DreamStatus(StrEnum):
     IDLE = 'idle'
     RUNNING = 'running'
     COMPLETED = 'completed'
     FAILED = 'failed'
-    REPLAYING = 'replaying'          # NEW v5.9: dream in replay
+    REPLAYING = 'replaying'
 
-# NEW v5.9: stato di contestazione di una memory
 class ContestStatus(StrEnum):
-    NONE = 'none'                    # mai contestata
-    OPEN = 'open'                    # contestazione aperta, voto in corso
-    RESOLVED_CONFIRM = 'confirmed'   # contestazione risolta: confermata
-    RESOLVED_RETRACT = 'retracted'   # contestazione risolta: ritrattata
-    ESCALATED = 'escalated'          # rimandato a modello reasoner
+    NONE = 'none'
+    OPEN = 'open'
+    RESOLVED_CONFIRM = 'confirmed'
+    RESOLVED_RETRACT = 'retracted'
+    ESCALATED = 'escalated'
 
-# NEW v5.9: tier del reasoning trace
 class ReasoningTier(StrEnum):
-    SHALLOW = 'shallow'              # < 512 token
-    STANDARD = 'standard'           # 512-2048 token
-    DEEP = 'deep'                   # 2048-8192 token
-    BOUNDED = 'bounded'             # troncato al limite massimo configurato
+    SHALLOW = 'shallow'
+    STANDARD = 'standard'
+    DEEP = 'deep'
+    BOUNDED = 'bounded'
 
 
 # ---------------------------------------------------------------------------
@@ -117,7 +115,8 @@ class WorkloadProfile(BaseModel):
 class ModelProfile(BaseModel):
     model_id: str
     family: str
-    size_class: Literal['4b', '7b', '9b', '14b']
+    # FIX v5.9: aggiunto '12b' per Gemma 4 12B (batiai/gemma4-12b:q4)
+    size_class: Literal['4b', '7b', '9b', '12b', '14b']
     quantization: str
     ram_required_gb: float
     disk_size_gb: float
@@ -190,17 +189,16 @@ class MemoryRecord(BaseModel):
     source_task_id: str | None = None
     validation_status: str = 'none'
     validation_notes: str | None = None
-    # NEW v5.9: contest tracking
     contest_status: ContestStatus = ContestStatus.NONE
     contest_opened_at: str | None = None
     contest_resolved_at: str | None = None
-    ttl_expires_at: str | None = None      # NEW v5.9: TTL per memoria speculativa
+    ttl_expires_at: str | None = None
 
 class MemoryEdge(BaseModel):
     edge_id: str = Field(default_factory=lambda: str(uuid4()))
     source_memory_id: str
     target_memory_id: str
-    relation: Literal['supports', 'contradicts', 'derived_from', 'promotes_to', 'contests']  # NEW: contests
+    relation: Literal['supports', 'contradicts', 'derived_from', 'promotes_to', 'contests']
     weight: float = 0.5
     created_by: str = 'dream_validator'
 
@@ -259,7 +257,6 @@ class DreamState(BaseModel):
     novelty_score: float = 0.0
     support_score: float = 0.0
     contradiction_score: float = 0.0
-    # NEW v5.9
     replay_count: int = 0
     last_replayed_at: str | None = None
     vote_tally: dict[str, int] = Field(default_factory=dict)
@@ -289,7 +286,7 @@ class ValidationVote(BaseModel):
     vote_id: str = Field(default_factory=lambda: str(uuid4()))
     memory_id: str
     dream_id: str
-    voter_model_id: str                          # modello che ha votato
+    voter_model_id: str
     vote: Literal['confirm', 'retract', 'abstain']
     confidence: float = Field(ge=0.0, le=1.0)
     reasoning: str | None = None
@@ -310,19 +307,19 @@ class ReasoningTrace(BaseModel):
     trace_id: str = Field(default_factory=lambda: str(uuid4()))
     task_id: str
     model_id: str
-    raw_trace: str                               # output grezzo del modello
+    raw_trace: str
     tier: ReasoningTier = ReasoningTier.STANDARD
     token_count: int = 0
     was_truncated: bool = False
-    categories: list[str] = Field(default_factory=list)  # ['planning','tool_call','memory_ref',...]
+    categories: list[str] = Field(default_factory=list)
     created_at: str = Field(default_factory=lambda: datetime.utcnow().isoformat())
 
 class ModelCatalogEntry(BaseModel):
-    """Voce nel catalogo modelli v5.9 (estende ModelProfile)."""
+    """Voce nel catalogo modelli v5.9."""
     profile: ModelProfile
-    ollama_tag: str                              # es. 'qwen3.5:7b'
+    ollama_tag: str
     role: Literal['agent', 'coder', 'reasoner', 'small', 'specialized']
-    priority: int = Field(ge=1, le=10, default=5)  # priorità routing
+    priority: int = Field(ge=1, le=10, default=5)
     is_available: bool = True
     last_checked_at: str | None = None
 
@@ -332,7 +329,7 @@ class RoutingContext(BaseModel):
     workload: WorkloadProfile
     available_catalog: list[ModelCatalogEntry] = Field(default_factory=list)
     node_capabilities: list[NodeCapability] = Field(default_factory=list)
-    routing_level: Literal[1, 2, 3, 4] = 1      # 1=agent, 2=coder, 3=reasoner, 4=specialized
+    routing_level: Literal[1, 2, 3, 4] = 1
     fallback_allowed: bool = True
 
 class DreamReplayRecord(BaseModel):
@@ -340,7 +337,7 @@ class DreamReplayRecord(BaseModel):
     replay_id: str = Field(default_factory=lambda: str(uuid4()))
     dream_id: str
     trigger: Literal['scheduled', 'contest_resolved', 'model_upgraded', 'manual']
-    replay_model_id: str                         # modello usato per il replay
+    replay_model_id: str
     memories_revalidated: int = 0
     votes_cast: int = 0
     retractions: int = 0
