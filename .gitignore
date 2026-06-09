@@ -1,0 +1,50 @@
+# HyperSpace-AGI v5.9 - .gitignore
+__pycache__/
+*.py[cod]
+*.so
+build/
+dist/
+*.egg-info/
+
+# Virtual Environment
+venv/
+.env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Database locale
+*.sqlite
+*.sqlite3
+
+# Segreti
+.env.local
+*.secret
+*.key
+
+# Test
+.coverage
+htmlcov/
+.pytest_cache/
+
+# Memoria locale
+shared/memory/*.sqlite
+runtime/dreams/*.json
+worker/votes/*.sqlite
+
+# Archive
+*.zip
+*.tar.gz
+*.bak
+*.tmp

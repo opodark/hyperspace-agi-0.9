@@ -1,0 +1,166 @@
+# HyperSpace-AGI v5.9 - Docker Compose Configuration
+# Optimized for Apple Silicon M5 (14B model limit)
+# Services: Ollama, Open WebUI, Node, Authority, Worker, Control Plane
+
+version: '3.8'
+
+services:
+  ollama:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.ollama
+    container_name: hyperspace-ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_models:/root/.ollama/models
+    environment:
+      - OLLAMA_NUM_PARALLEL=4
+      - OLLAMA_MAX_QUEUE=512
+      - OLLAMA_KEEP_ALIVE=24h
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
+    networks:
+      - hyperspace-net
+
+  webui:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.webui
+    container_name: hyperspace-webui
+    ports:
+      - "8080:8080"
+    environment:
+      - OLLAMA_BASE_URL=http://ollama:11434
+      - WEBUI_SECRET_KEY=hyperspace-agi-v59-secret-key
+      - ENABLE_SIGNUP=false
+      - ENABLE_ADMIN_EXPLORE=true
+    restart: unless-stopped
+    depends_on:
+      ollama:
+        condition: service_healthy
+    networks:
+      - hyperspace-net
+
+  node:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.node
+    container_name: hyperspace-node
+    ports:
+      - "8765:8765"
+    environment:
+      - NODE_API_PORT=8765
+      - OLLAMA_BASE_URL=http://ollama:11434
+      - NODE_ID=default-node
+      - NODE_ROLE=orchestrator
+      - DEFAULT_AGENT_MODEL=qwen3.5:7b
+      - DEFAULT_CODER_MODEL=qwen-coder:14b
+      - DEFAULT_REASONER_MODEL=deepseek-r1:14b
+    restart: unless-stopped
+    depends_on:
+      ollama:
+        condition: service_healthy
+    networks:
+      - hyperspace-net
+    volumes:
+      - node_memory:/node/shared/memory
+      - node_dreams:/node/runtime/dreams
+
+  authority:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.authority
+    container_name: hyperspace-authority
+    ports:
+      - "8766:8766"
+    environment:
+      - AUTHORITY_API_PORT=8766
+      - OLLAMA_BASE_URL=http://ollama:11434
+      - POLICY_ENGINE_VERSION=1
+      - MODEL_CATALOG_ENABLED=true
+      - ROUTING_STRATEGY=smart-4level
+    restart: unless-stopped
+    depends_on:
+      ollama:
+        condition: service_healthy
+    networks:
+      - hyperspace-net
+    volumes:
+      - authority_catalog:/authority/authority/catalog
+      - authority_policy:/authority/authority/policy
+
+  worker:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.worker
+    container_name: hyperspace-worker
+    ports:
+      - "8767:8767"
+    environment:
+      - WORKER_API_PORT=8767
+      - OLLAMA_BASE_URL=http://ollama:11434
+      - DREAM_VALIDATOR_ENABLED=true
+      - VALIDATION_VOTE_STORE_ENABLED=true
+      - DREAM_REPLAY_ENABLED=true
+      - CONTESTED_MEMORY_ENABLED=true
+    restart: unless-stopped
+    depends_on:
+      ollama:
+        condition: service_healthy
+      node:
+        condition: service_healthy
+    networks:
+      - hyperspace-net
+    volumes:
+      - worker_votes:/worker/worker/votes
+      - worker_dreams:/worker/runtime/dreams
+      - worker_memory:/worker/shared/memory
+
+  control-plane:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.control-plane
+    container_name: hyperspace-control-plane
+    ports:
+      - "8768:8768"
+    environment:
+      - CONTROL_PLANE_API_PORT=8768
+      - OLLAMA_BASE_URL=http://ollama:11434
+      - SMART_ROUTING_ENABLED=true
+      - ROUTING_LEVELS=4
+      - MODEL_CATALOG_API_ENABLED=true
+      - VOTES_API_ENABLED=true
+      - REPLAY_API_ENABLED=true
+    restart: unless-stopped
+    depends_on:
+      ollama:
+        condition: service_healthy
+      authority:
+        condition: service_healthy
+      worker:
+        condition: service_healthy
+    networks:
+      - hyperspace-net
+    volumes:
+      - cp_runtime:/control-plane/control-plane/runtime
+
+volumes:
+  ollama_models:
+  node_memory:
+  node_dreams:
+  authority_catalog:
+  authority_policy:
+  worker_votes:
+  worker_dreams:
+  worker_memory:
+  cp_runtime:
+
+networks:
+  hyperspace-net:
+    driver: bridge
