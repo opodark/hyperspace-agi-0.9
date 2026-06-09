@@ -1,5 +1,6 @@
 # HyperSpace-AGI v5.9 - Model Catalog
-# Tutti i modelli verificati su Ollama registry, max 9B per Mac M-series 16GB
+# Modelli verificati su Ollama registry, max 9-12B per Mac M-series 16GB
+# gemma4:12b -> tag: batiai/gemma4-12b:q4 (6.9GB RAM, 256K ctx, richiede Ollama 0.30.4+)
 from __future__ import annotations
 from shared.domain.models import ModelProfile, ModelCatalogEntry
 
@@ -55,25 +56,27 @@ MODEL_CATALOG: list[ModelCatalogEntry] = [
     ),
 
     # ------------------------------------------------------------------
-    # REASONER: Gemma 3 9B - deep reasoning, contesto lungo
-    # Tag Ollama: gemma3:9b | 7.0GB RAM | 128K ctx
+    # REASONER: Gemma 4 12B - deep reasoning, long context, multimodal
+    # Tag Ollama: batiai/gemma4-12b:q4 | 6.9GB RAM | 256K ctx
+    # Encoder-free multimodal (testo + immagini + audio + video)
+    # Richiede: Ollama >= 0.30.4
     # ------------------------------------------------------------------
     ModelCatalogEntry(
         profile=ModelProfile(
-            model_id='gemma3:9b',
+            model_id='gemma4:12b',
             family='gemma',
-            size_class='9b',
+            size_class='9b',  # size_class usa '9b' come proxy per 9-12b range
             quantization='Q4_K_M',
-            ram_required_gb=7.0,
-            disk_size_gb=6.0,
+            ram_required_gb=6.9,
+            disk_size_gb=6.9,
             supports_json_schema=True,
             supports_tools=True,
-            max_context_tokens=131072,  # 128K
-            reasoning_score=88,
-            coding_score=72,
-            speed_score=70,
+            max_context_tokens=262144,  # 256K
+            reasoning_score=94,
+            coding_score=82,
+            speed_score=68,
         ),
-        ollama_tag='gemma3:9b',
+        ollama_tag='batiai/gemma4-12b:q4',
         role='reasoner',
         priority=10,
     ),
