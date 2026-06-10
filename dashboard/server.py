@@ -1,5 +1,4 @@
 # HyperSpace-AGI v6.0 - Dashboard Server
-# FastAPI + HTMX + TailwindCSS - porta 8769
 from __future__ import annotations
 import docker
 import httpx
@@ -11,12 +10,11 @@ import os
 app = FastAPI(title='HyperSpace Dashboard', version='2.0.0')
 templates = Jinja2Templates(directory='/dashboard/templates')
 
-DOCKER_CLIENT   = docker.from_env()
-OLLAMA_URL      = os.getenv('OLLAMA_BASE_URL', 'http://ollama:11434')
-CONTROL_PLANE   = os.getenv('CONTROL_PLANE_URL', 'http://control-plane:8768')
-AUTHORITY_URL   = os.getenv('AUTHORITY_URL', 'http://authority:8766')
+DOCKER_CLIENT = docker.from_env()
+OLLAMA_URL    = os.getenv('OLLAMA_BASE_URL', 'http://ollama:11434')
+CONTROL_PLANE = os.getenv('CONTROL_PLANE_URL', 'http://control-plane:8768')
+AUTHORITY_URL = os.getenv('AUTHORITY_URL', 'http://authority:8766')
 
-# Tutti i node URLs (supporta multi-node)
 NODE_URLS = [
     url.strip()
     for url in os.getenv('NODE_URLS', 'http://node:8765').split(',')
@@ -24,14 +22,14 @@ NODE_URLS = [
 ]
 
 SERVICES = [
-    {'name': 'hyperspace-ollama',        'label': 'Ollama',         'port': 11434, 'emoji': '🦙'},
-    {'name': 'hyperspace-authority',     'label': 'Authority',      'port': 8766,  'emoji': '🔍'},
-    {'name': 'hyperspace-node',          'label': 'Node A',         'port': 8765,  'emoji': '🤖'},
-    {'name': 'hyperspace-node-b',        'label': 'Node B',         'port': 8770,  'emoji': '🤖'},
-    {'name': 'hyperspace-worker',        'label': 'Worker',         'port': 8767,  'emoji': '⚙️'},
-    {'name': 'hyperspace-control-plane', 'label': 'Control Plane',  'port': 8768,  'emoji': '🧠'},
-    {'name': 'hyperspace-webui',         'label': 'Open WebUI',     'port': 8080,  'emoji': '🌐'},
-    {'name': 'hyperspace-dashboard',     'label': 'Dashboard',      'port': 8769,  'emoji': '📊'},
+    {'name': 'hyperspace-ollama',        'label': 'Ollama',        'port': 11434, 'emoji': '🦙'},
+    {'name': 'hyperspace-authority',     'label': 'Authority',     'port': 8766,  'emoji': '🔍'},
+    {'name': 'hyperspace-node',          'label': 'Node A',        'port': 8765,  'emoji': '🤖'},
+    {'name': 'hyperspace-node-b',        'label': 'Node B',        'port': 8770,  'emoji': '🤖'},
+    {'name': 'hyperspace-worker',        'label': 'Worker',        'port': 8767,  'emoji': '⚙️'},
+    {'name': 'hyperspace-control-plane', 'label': 'Control Plane', 'port': 8768,  'emoji': '🧠'},
+    {'name': 'hyperspace-webui',         'label': 'Open WebUI',    'port': 8080,  'emoji': '🌐'},
+    {'name': 'hyperspace-dashboard',     'label': 'Dashboard',     'port': 8769,  'emoji': '📊'},
 ]
 
 
@@ -74,33 +72,52 @@ async def get_node_dreams(url: str) -> dict | None:
     return None
 
 
-async def get_node_peers(url: str) -> dict | None:
-    try:
-        async with httpx.AsyncClient(timeout=5.0) as client:
-            r = await client.get(f'{url}/gossip/peers')
-            if r.status_code == 200:
-                return r.json()
-    except Exception:
-        pass
-    return None
+async def get_all_peers() -> list[dict]:
+    """
+    Aggrega self + peers da TUTTI i NODE_URLS.
+    Deduplicazione per node_id — in caso di conflitto vince
+    l'entry con last_seen più recente.
+    """
+    seen: dict[str, dict] = {}
+
+    async def fetch_one(url: str) -> None:
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                r = await client.get(f'{url}/gossip/peers')
+                if r.status_code != 200:
+                    return
+                data = r.json()
+                # includi il nodo stesso (self)
+                candidates = [data['self']] + data.get('peers', [])
+                for p in candidates:
+                    nid = p.get('node_id', '')
+                    if not nid or nid.startswith('__bootstrap'):
+                        continue
+                    existing = seen.get(nid)
+                    if existing is None or p.get('last_seen', 0) > existing.get('last_seen', 0):
+                        seen[nid] = p
+        except Exception:
+            pass
+
+    import asyncio
+    await asyncio.gather(*[fetch_one(url) for url in NODE_URLS])
+    # ordina: prima alive, poi per node_id
+    return sorted(seen.values(), key=lambda p: (not p.get('alive', False), p.get('node_id', '')))
 
 
 # ── Routes ────────────────────────────────────────────────────────────────────
 
 @app.get('/', response_class=HTMLResponse)
 async def index(request: Request):
+    import asyncio
     services = [{**svc, **get_container_status(svc['name'])} for svc in SERVICES]
-    models   = await get_ollama_models()
-    stats    = await get_routing_stats()
-    # dream nodes
-    dream_nodes = []
-    for url in NODE_URLS:
-        data = await get_node_dreams(url)
-        if data:
-            dream_nodes.append(data)
-    # peers da node-a
-    peer_data  = await get_node_peers(NODE_URLS[0]) if NODE_URLS else {}
-    peers      = peer_data.get('peers', []) if peer_data else []
+    models, stats, dream_nodes, peers = await asyncio.gather(
+        get_ollama_models(),
+        get_routing_stats(),
+        asyncio.gather(*[get_node_dreams(url) for url in NODE_URLS]),
+        get_all_peers(),
+    )
+    dream_nodes = [d for d in dream_nodes if d is not None]
     return templates.TemplateResponse('index.html', {
         'request': request, 'services': services, 'models': models,
         'stats': stats, 'dream_nodes': dream_nodes, 'peers': peers,
@@ -127,18 +144,15 @@ async def partial_stats(request: Request):
 
 @app.get('/partials/dreams', response_class=HTMLResponse)
 async def partial_dreams(request: Request):
-    dream_nodes = []
-    for url in NODE_URLS:
-        data = await get_node_dreams(url)
-        if data:
-            dream_nodes.append(data)
+    import asyncio
+    results = await asyncio.gather(*[get_node_dreams(url) for url in NODE_URLS])
+    dream_nodes = [d for d in results if d is not None]
     return templates.TemplateResponse('partials/dreams.html', {'request': request, 'nodes': dream_nodes})
 
 
 @app.get('/partials/peers', response_class=HTMLResponse)
 async def partial_peers(request: Request):
-    peer_data = await get_node_peers(NODE_URLS[0]) if NODE_URLS else {}
-    peers     = peer_data.get('peers', []) if peer_data else []
+    peers = await get_all_peers()
     return templates.TemplateResponse('partials/peers.html', {'request': request, 'peers': peers})
 
 
@@ -197,12 +211,13 @@ async def pull_model(request: Request):
                         try:
                             data      = json.loads(line)
                             status    = data.get('status', '')
-                            total     = data.get('total', 0)
+                            total     = data.get('completed', 0)
                             completed = data.get('completed', 0)
-                            if total > 0:
-                                pct    = int(completed * 100 / total)
+                            tot       = data.get('total', 0)
+                            if tot > 0:
+                                pct    = int(completed * 100 / tot)
                                 mb     = completed // 1_048_576
-                                tot_mb = total // 1_048_576
+                                tot_mb = tot // 1_048_576
                                 bar    = '█' * (pct // 5) + '░' * (20 - pct // 5)
                                 msg    = f'[{bar}] {pct}% ({mb}/{tot_mb} MB)'
                             else:
