@@ -1,5 +1,6 @@
 # HyperSpace-AGI v6.0 - Docker Compose
-# Naming: ogni nodo ha nickname, location, tags, owner, color
+# P2P: seed bootstrap via Authority + gossip diretto
+# NODE_PEERS = fallback statico se Authority non raggiungibile
 
 services:
   ollama:
@@ -70,11 +71,15 @@ services:
       - DEFAULT_CODER_MODEL=qwen2.5-coder:7b
       - DEFAULT_REASONER_MODEL=batiai/gemma4-12b:q4
       # --- p2p ---
+      - AUTHORITY_URL=http://authority:8766
       - NODE_PEERS=node-b:8770
       - GOSSIP_INTERVAL_SEC=30
+      - ANNOUNCE_INTERVAL_SEC=60
     restart: unless-stopped
     depends_on:
       ollama:
+        condition: service_healthy
+      authority:
         condition: service_healthy
     networks:
       - hyperspace-net
@@ -105,11 +110,15 @@ services:
       - DEFAULT_CODER_MODEL=qwen2.5-coder:7b
       - DEFAULT_REASONER_MODEL=batiai/gemma4-12b:q4
       # --- p2p ---
+      - AUTHORITY_URL=http://authority:8766
       - NODE_PEERS=node:8765
       - GOSSIP_INTERVAL_SEC=30
+      - ANNOUNCE_INTERVAL_SEC=60
     restart: unless-stopped
     depends_on:
       ollama:
+        condition: service_healthy
+      authority:
         condition: service_healthy
     networks:
       - hyperspace-net
@@ -124,7 +133,6 @@ services:
     container_name: hyperspace-authority
     ports:
       - "8766:8766"
-      
     environment:
       - AUTHORITY_API_PORT=8766
       - OLLAMA_BASE_URL=http://ollama:11434
