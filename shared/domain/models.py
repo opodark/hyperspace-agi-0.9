@@ -1,6 +1,5 @@
-# HyperSpace-AGI v5.9 - Domain Models
-# Evolution from v5.8: adds ContestStatus, ReasoningTier, ValidationVote,
-# ReasoningTrace, ModelCatalogEntry, RoutingContext, DreamReplayRecord
+# HyperSpace-AGI v6.0 - Domain Models
+# Evolution from v5.9: adds size_class 27b/32b, role reasoner_large/agent_large
 from __future__ import annotations
 from enum import StrEnum
 from typing import Literal, Any
@@ -10,7 +9,7 @@ from pydantic import BaseModel, Field
 
 
 # ---------------------------------------------------------------------------
-# Enums (v5.8 preserved + v5.9 additions)
+# Enums
 # ---------------------------------------------------------------------------
 
 class WorkloadType(StrEnum):
@@ -83,7 +82,7 @@ class ReasoningTier(StrEnum):
 
 
 # ---------------------------------------------------------------------------
-# v5.8 Models (preserved as-is for backward compat)
+# v5.8 Models
 # ---------------------------------------------------------------------------
 
 class RequestFeatures(BaseModel):
@@ -115,8 +114,8 @@ class WorkloadProfile(BaseModel):
 class ModelProfile(BaseModel):
     model_id: str
     family: str
-    # FIX v5.9: aggiunto '12b' per Gemma 4 12B (batiai/gemma4-12b:q4)
-    size_class: Literal['4b', '7b', '9b', '12b', '14b']
+    # v6.0: aggiunto '27b' e '32b' per nodi con 24-32GB RAM
+    size_class: Literal['4b', '7b', '9b', '12b', '14b', '27b', '32b']
     quantization: str
     ram_required_gb: float
     disk_size_gb: float
@@ -278,11 +277,10 @@ class OpenAIModelsResponse(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# NEW v5.9 Models
+# v5.9 Models
 # ---------------------------------------------------------------------------
 
 class ValidationVote(BaseModel):
-    """Singolo voto di validazione su una MemoryRecord."""
     vote_id: str = Field(default_factory=lambda: str(uuid4()))
     memory_id: str
     dream_id: str
@@ -293,7 +291,6 @@ class ValidationVote(BaseModel):
     voted_at: str = Field(default_factory=lambda: datetime.utcnow().isoformat())
 
 class ValidationVoteTally(BaseModel):
-    """Aggregato voti per una memory."""
     memory_id: str
     confirm_count: int = 0
     retract_count: int = 0
@@ -303,7 +300,6 @@ class ValidationVoteTally(BaseModel):
     resolution: ContestStatus = ContestStatus.OPEN
 
 class ReasoningTrace(BaseModel):
-    """Trace del reasoning di un modello per un task."""
     trace_id: str = Field(default_factory=lambda: str(uuid4()))
     task_id: str
     model_id: str
@@ -315,16 +311,16 @@ class ReasoningTrace(BaseModel):
     created_at: str = Field(default_factory=lambda: datetime.utcnow().isoformat())
 
 class ModelCatalogEntry(BaseModel):
-    """Voce nel catalogo modelli v5.9."""
+    """Voce nel catalogo modelli v6.0."""
     profile: ModelProfile
     ollama_tag: str
-    role: Literal['agent', 'coder', 'reasoner', 'small', 'specialized']
+    # v6.0: aggiunto 'reasoner_large' e 'agent_large' per nodi con 24-32GB RAM
+    role: Literal['agent', 'coder', 'reasoner', 'reasoner_large', 'agent_large', 'small', 'specialized']
     priority: int = Field(ge=1, le=10, default=5)
     is_available: bool = True
     last_checked_at: str | None = None
 
 class RoutingContext(BaseModel):
-    """Contesto passato al Policy Engine per decidere il routing."""
     request_id: str
     workload: WorkloadProfile
     available_catalog: list[ModelCatalogEntry] = Field(default_factory=list)
@@ -333,7 +329,6 @@ class RoutingContext(BaseModel):
     fallback_allowed: bool = True
 
 class DreamReplayRecord(BaseModel):
-    """Record di un dream replay."""
     replay_id: str = Field(default_factory=lambda: str(uuid4()))
     dream_id: str
     trigger: Literal['scheduled', 'contest_resolved', 'model_upgraded', 'manual']
