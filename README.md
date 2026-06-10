@@ -1,7 +1,7 @@
-# HyperSpace-AGI v5.9
+# HyperSpace-AGI v6.0
 
-**Swarm di agenti IA distribuiti su Docker + Ollama** con modelli locali quantizzati 7B–12B.
-Pull automatico dei modelli, routing intelligente 4 livelli, memoria cognitiva contestabile.
+**Swarm di agenti IA distribuiti su Docker + Ollama** con modelli locali quantizzati 7B–32B.
+Rete P2P multi-nodo con gossip protocol, Authority seed bootstrap, dream condivisi tra nodi e auto-selezione modelli in base alla RAM disponibile.
 
 ---
 
@@ -19,8 +19,8 @@ chmod +x setup.sh
 Lo script `setup.sh`:
 - ✅ Verifica Docker e prerequisiti
 - 🔨 Build delle immagini Docker con progress
-- ⏳ Attende health check di ogni servizio con barra avanzamento
-- 📥 Pull automatico del modello default (`qwen2.5:7b`) con progress MB/%
+- ⏳ Attende health check di ogni servizio
+- 📥 Pull automatico del modello default (`qwen2.5:7b`)
 - 🌐 Apre automaticamente Open WebUI nel browser
 
 ### Windows (PowerShell)
@@ -37,99 +37,158 @@ Set-ExecutionPolicy -Scope Process Bypass
 ```bash
 git clone https://github.com/opodark/hyperspace-agi-0.9
 cd hyperspace-agi-0.9
-
-# Avvia stack (pull modelli automatico al primo uso)
 docker compose up -d --build
-
-# Pre-pull opzionale per velocizzare il primo avvio
-docker exec -it hyperspace-ollama ollama pull qwen2.5:7b
-docker exec -it hyperspace-ollama ollama pull qwen2.5-coder:7b
-docker exec -it hyperspace-ollama ollama pull gemma3:9b
 ```
 
 ### Requisiti
 
-| | Minimo | Consigliato |
-|---|---|---|
-| RAM | 8 GB | 16 GB |
-| Storage | 10 GB | 30 GB |
-| OS | macOS 13+, Ubuntu 22+, Windows 10+ | macOS Apple Silicon |
-| Docker | 24+ | Docker Desktop |
+| | Minimo | Consigliato | Nodo potente |
+|---|---|---|---|
+| RAM | 8 GB | 16 GB | 32 GB DDR5 |
+| Storage | 15 GB | 40 GB | 80 GB |
+| OS | macOS 13+, Ubuntu 22+, Win 10+ | macOS Apple Silicon | Ubuntu 24+ |
+| Docker | 24+ | Docker Desktop | Docker Engine |
 
 ---
 
-## Architettura
+## Architettura v6.0
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                        CLIENT / USER                            │
-│              Open WebUI (8080)  •  REST API                     │
-└────────────────────────────┬────────────────────────────────────┘
-                             │  POST /v1/chat/completions
-                             ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                  CONTROL PLANE  :8768                           │
-│                                                                 │
-│  RequestClassifier ──▶ SmartRouter 4-level                      │
-│    FAST_CHAT  (L1)       │                                      │
-│    TOOL_CALL  (L1)       │  POST /resolve                       │
-│    CODING     (L2)       ▼                                      │
-│    REASONING  (L3)  ┌──────────┐   PullDecision(YES)?          │
-│    LONG_CTX   (L3)  │Authority │──▶ PullExecutor                │
-│                     │  :8766   │       │                        │
-│                     └──────────┘       │ POST /api/pull         │
-│  RuntimeStore (SQLite)  ◀──────────────▼                        │
-│  audit trail routing        Ollama  :11434                      │
-└──────────┬──────────────────────────────────────────────────────┘
-           │  ExecutionPlan (model pronto)
-           ▼
-┌──────────────────────┐     ┌──────────────────────────────────┐
-│    NODE  :8765       │     │        WORKER  :8767             │
-│                      │     │                                  │
-│  AgentRuntime        │     │  DreamValidator v2               │
-│  TieredMemoryStore   │     │  ValidationVoteStore (SQLite)    │
-│  ┌────────────────┐  │     │  DreamStore (SQLite)             │
-│  │  EPISODIC      │  │     │  DreamReplayEngine               │
-│  │  SEMANTIC      │  │     │  ┌──────────────────────────┐   │
-│  │  SPECULATIVE   │  │     │  │  Dream → Vote → Tally    │   │
-│  │  (TTL, score)  │  │     │  │  Quorum(3) → Resolve     │   │
-│  └────────────────┘  │     │  └──────────────────────────┘   │
-└──────────┬───────────┘     └────────────────┬─────────────────┘
+┌─────────────────────────────────────────────────────────────────────┐
+│                         CLIENT / USER                               │
+│               Open WebUI (8080)  •  REST API                        │
+└──────────────────────────────┬──────────────────────────────────────┘
+                               │
+                               ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│                   CONTROL PLANE  :8768                              │
+│   RequestClassifier ──▶ SmartRouter 4-level ──▶ LoadBalancer        │
+│                                │                    │               │
+│                                ▼                    ▼               │
+│                         Authority :8766      nodo meno carico       │
+└──────────────────────────────┬──────────────────────────────────────┘
+                               │
+               ┌───────────────┴────────────────┐
+               ▼                                ▼
+┌──────────────────────┐          ┌──────────────────────┐
+│   NODE A  :8765      │          │   NODE B  :8770      │
+│   macbook-alberto    │◀────────▶│   ubuntu-server      │
+│   16GB RAM           │  gossip  │   32GB DDR5          │
+│   qwen2.5:7b         │  P2P     │   qwen2.5:32b        │
+│   gemma4:12b Q4      │          │   gemma4:27b         │
+└──────────┬───────────┘          └───────────┬──────────┘
            │                                  │
            └──────────────┬───────────────────┘
+                          │  announce + heartbeat
                           ▼
-              ┌───────────────────────┐
-              │     OLLAMA  :11434    │
-              │                      │
-              │  qwen2.5:7b          │  ◀ AGENT (L1)  default
-              │  qwen2.5:14b         │  ◀ AGENT (L1+)
-              │  qwen2.5-coder:7b    │  ◀ CODER (L2)
-              │  qwen2.5-coder:14b   │  ◀ CODER (L2+)
-              │  gemma3:12b          │  ◀ REASONER (L3)
-              │  gemma3:9b           │  ◀ SMALL routing
-              └───────────────────────┘
+            ┌─────────────────────────┐
+            │   AUTHORITY  :8766      │
+            │   NodeRegistry          │
+            │   Model Catalog         │
+            │   Policy Engine v1      │
+            │   /catalog/ram/{gb}     │
+            └─────────────────────────┘
+                          │
+                          ▼
+            ┌─────────────────────────┐
+            │     OLLAMA  :11434      │
+            │  (condiviso tra nodi)   │
+            └─────────────────────────┘
 ```
 
 ---
 
-## Flow: Pull Automatico dei Modelli
+## P2P Network — come funziona
 
-Da v5.9 **non è necessario fare `ollama pull` manualmente**.
-Il sistema gestisce il pull in autonomia:
+### Authority Seed Bootstrap
 
 ```
-UserRequest
-  → RequestClassifier   (es. DEEP_REASONING → gemma3:12b)
-  → authority /resolve  (PullDecision = YES se modello COLD)
-  → PullExecutor
-      → OllamaPullService.is_hot()   ← skip se già presente
-      → POST ollama/api/pull          ← streaming progress
-      → attende {"status": "success"}
-  → ExecutionPlan (modello ora HOT)
-  → /v1/chat/completions → Ollama
+Boot nodo
+  → POST authority:8766/peers/announce   ← si registra con nickname/tags/color/avatar
+  ← [{peer-a}, {peer-b}, ...]            ← riceve lista peer attivi
+  → gossip diretto con i peer ricevuti   ← da qui è tutto P2P
+  → ogni 60s ri-annuncio a Authority     ← aggiorna last_seen
 ```
 
-Se il pull fallisce → **fallback automatico** a `qwen2.5:7b`.
+`NODE_PEERS` rimane come fallback statico se Authority non è raggiungibile al boot.
+
+### Gossip Protocol
+
+- Ogni **30s** ogni nodo pinga tutti i peer conosciuti via `POST /gossip/heartbeat`
+- Ogni heartbeat propaga la lista dei peer conosciuti (**fan-out**)
+- Peer non risponde per **90s** → rimosso automaticamente dal registry
+- Stato (`active` / `dreaming` / `sleeping`) e `load` propagati ad ogni heartbeat
+
+### Shared Dreams P2P
+
+```
+nodo-a crea dream  →  POST /dreams/add
+  → propaga a tutti i peer  →  POST peer/dreams/receive
+  → ogni peer può votare    →  POST /dreams/{id}/vote
+  → quorum (3 voti)         →  dream promosso
+```
+
+---
+
+## Auto-pull modelli per RAM
+
+Impostando `NODE_RAM_GB` nell'env, al boot il nodo scarica automaticamente i modelli adatti:
+
+```bash
+# MacBook Air 16GB → scarica fino a 13.6GB usabili
+NODE_RAM_GB=16   # qwen2.5:7b + qwen2.5-coder:7b + gemma4:12b
+
+# Ubuntu 32GB DDR5 → scarica fino a 27.2GB usabili
+NODE_RAM_GB=32   # + qwen2.5:32b + gemma4:27b
+```
+
+Logica: `Authority /catalog/ram/{gb}` → lista modelli che entrano → pull solo quelli mancanti.
+Margine OS automatico: **15%** della RAM totale riservato.
+
+---
+
+## Modelli Supportati
+
+| Modello | Tag Ollama | Ruolo | RAM | Ctx | Nodo target |
+|---|---|---|---|---|---|
+| Phi-3.5 Mini | `phi3.5` | small | 2.8 GB | 128K | qualsiasi |
+| Qwen 2.5 7B | `qwen2.5:7b` | agent | 5.5 GB | 32K | 8GB+ |
+| Qwen Coder 7B | `qwen2.5-coder:7b` | coder | 5.5 GB | 32K | 8GB+ |
+| Gemma 4 12B Q4 | `batiai/gemma4-12b:q4` | reasoner | 6.9 GB | 256K | 12GB+ |
+| Qwen 2.5 32B | `qwen2.5:32b` | agent_large | 20 GB | 32K | 24GB+ |
+| Gemma 4 27B | `gemma4:27b` | reasoner_large | 18 GB | 128K | 24GB+ |
+
+---
+
+## Configurazione nodo
+
+```yaml
+environment:
+  # identità
+  - NODE_ID=node-a
+  - NODE_NICKNAME=macbook-alberto
+  - NODE_LOCATION=MacBook Air M2
+  - NODE_TAGS=dev,macos,arm64
+  - NODE_OWNER=alberto
+  - NODE_COLOR=#7c3aed         # colore hex nella Peer Map
+  - NODE_AVATAR_STYLE=bottts   # stile DiceBear (bottts, pixel-art, ...)
+
+  # hardware
+  - NODE_RAM_GB=16             # abilita auto-pull intelligente
+
+  # rete P2P
+  - AUTHORITY_URL=http://authority:8766
+  - NODE_PEERS=node-b:8770     # fallback statico
+  - GOSSIP_INTERVAL_SEC=30
+  - ANNOUNCE_INTERVAL_SEC=60
+```
+
+**Nodo esterno** (Ubuntu su altra macchina):
+```yaml
+- AUTHORITY_URL=http://<IP-MacBook>:8766
+- NODE_PEERS=   # vuoto, ci pensa l'Authority
+- NODE_RAM_GB=32
+```
 
 ---
 
@@ -137,41 +196,28 @@ Se il pull fallisce → **fallback automatico** a `qwen2.5:7b`.
 
 | Servizio | Porta | Endpoint chiave |
 |---|---|---|
+| Dashboard | 8769 | UI controllo completa |
 | Open WebUI | 8080 | UI chat |
-| Control Plane | 8768 | `/route`, `/v1/chat/completions`, `/stats`, `/decisions` |
-| Node | 8765 | `/chat`, `/memory/{session_id}`, `/memory/contested`, `/memory/prune` |
-| Authority | 8766 | `/resolve`, `/catalog`, `/catalog/role/{role}`, `/health` |
-| Worker | 8767 | `/votes/{id}`, `/votes/tally/{id}`, `/replay`, `/contested/{id}/resolve` |
+| Control Plane | 8768 | `/route`, `/v1/chat/completions`, `/stats` |
+| Node | 8765/8770 | `/chat`, `/gossip/peers`, `/dreams`, `/dreams/add` |
+| Authority | 8766 | `/peers`, `/peers/announce`, `/catalog`, `/catalog/ram/{gb}` |
+| Worker | 8767 | `/votes/{id}`, `/replay`, `/contested/{id}/resolve` |
 | Ollama | 11434 | `/api/chat`, `/api/pull`, `/api/tags` |
 
 ---
 
-## Modelli Supportati
+## Dashboard
 
-| Modello | Tag Ollama | Ruolo | RAM | Ctx | Note |
-|---|---|---|---|---|---|
-| Qwen 2.5 7B | `qwen2.5:7b` | agent | 5.5GB | 32K | default, tool calling |
-| Qwen 2.5 14B | `qwen2.5:14b` | agent | 9.0GB | 32K | agent potenziato |
-| Qwen Coder 7B | `qwen2.5-coder:7b` | coder | 5.5GB | 32K | coding L2 |
-| Qwen Coder 14B | `qwen2.5-coder:14b` | coder | 10.5GB | 32K | coding pesante |
-| Gemma 3 12B | `gemma3:12b` | reasoner | 8.0GB | 128K | reasoning L3 |
-| Gemma 3 9B | `gemma3:9b` | small | 5.0GB | 8K | routing/classificazione |
+Apri `http://localhost:8769`
 
----
+- 🐳 **Container** — stato, restart/stop/start, log viewer
+- 🕸️ **Peer Map** — nodi P2P con avatar DiceBear, stato, load, tags
+- 🔍 **Authority** — NodeRegistry live + catalog modelli per RAM
+- 🌙 **Dream Lab** — dream attivi, voti, stato promozione
+- 🦙 **Modelli Ollama** — installati, pull nuovo modello con progress
+- 📊 **Routing Stats** — decisioni smart router
 
-## Novità v5.9 vs v5.8
-
-| Componente | v5.8 | v5.9 |
-|---|---|---|
-| Routing | Statico | Smart 4-levels (L1→L3) |
-| Pull modelli | **Manuale** (`ollama pull`) | **Automatico** (PullExecutor + OllamaPullService) |
-| Reasoner | DeepSeek-R1 14B | **Gemma 3 12B** (128K ctx) |
-| Memoria | RAG classico | Cognitiva (tier, TTL, contest, replay) |
-| Policy Engine | None | PolicyEngineV1 + scoring + placement |
-| Dream Voting | None | ValidationVoteStore + quorum(3) |
-| Dream Replay | None | DreamReplayEngine + retraction/promotion |
-| Workload types | 3 (chat/code/tool) | 5 (+DEEP_REASONING, +LONG_CONTEXT_ANALYSIS) |
-| Setup | Manuale | **Script automatico** (macOS/Linux/Windows) |
+Auto-refresh HTMX: container 10s · peer map 15s · authority 20s · dreams 8s.
 
 ---
 
@@ -179,16 +225,35 @@ Se il pull fallisce → **fallback automatico** a `qwen2.5:7b`.
 
 ```
 hyperspace-agi-0.9/
-├── setup.sh                 # Installer macOS/Linux
-├── setup.ps1                # Installer Windows
+├── setup.sh / setup.ps1
 ├── docker-compose.yml
-├── docker/                  # Dockerfile per ogni servizio
-├── shared/                  # Domain models, settings, trace splitter
-├── authority/               # Policy Engine v1, model catalog
-├── worker/                  # Dream validator, vote store, replay engine
-├── control-plane/           # Smart Router, Request Classifier, Pull Executor
-├── node/                    # Agent Runtime, Tiered Memory Store
-└── tests/                   # Smoke tests (pytest)
+├── docker/                   # Dockerfile per ogni servizio
+├── shared/
+│   └── domain/models.py      # Domain models Pydantic v6.0
+├── authority/
+│   ├── server.py             # FastAPI + NodeRegistry + Catalog
+│   ├── model_catalog.py      # 6 modelli 4b→32b con tier RAM
+│   ├── node_registry.py      # Registry P2P con TTL
+│   └── policy_engine.py      # Policy Engine v1
+├── worker/
+│   ├── dream_validator.py
+│   ├── validation_vote_store.py
+│   └── dream_replay.py
+├── control-plane/
+│   └── smart_router.py       # Router 4-level + load balancing
+├── node/
+│   ├── server.py             # FastAPI + gossip + shared dreams
+│   ├── runtime/
+│   │   ├── gossip_service.py # GossipService + PeerInfo + avatar
+│   │   ├── node_state.py     # NodeStateManager + DreamEntry
+│   │   └── auto_pull.py      # Auto-pull modelli per RAM
+│   └── memory/
+│       └── tiered_store.py
+└── dashboard/
+    ├── server.py
+    └── templates/
+        ├── index.html
+        └── partials/         # status, peers, authority, dreams, models, stats
 ```
 
 ## License
