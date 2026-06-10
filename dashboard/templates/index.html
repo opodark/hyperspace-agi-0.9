@@ -22,7 +22,6 @@
 </head>
 <body class="min-h-screen p-6">
 
-  <!-- Header -->
   <div class="flex items-center justify-between mb-8">
     <div>
       <h1 class="text-2xl font-bold text-purple-400">⚡ HyperSpace Dashboard</h1>
@@ -50,6 +49,14 @@
     </div>
   </section>
 
+  <!-- Authority NodeRegistry -->
+  <section class="mb-8">
+    <h2 class="text-lg font-semibold text-slate-300 mb-4">🔍 Authority — NodeRegistry</h2>
+    <div id="authority-section" hx-get="/partials/authority" hx-trigger="every 20s" hx-swap="innerHTML">
+      {% include 'partials/authority.html' %}
+    </div>
+  </section>
+
   <!-- Dream Lab -->
   <section class="mb-8">
     <h2 class="text-lg font-semibold text-slate-300 mb-4">🌙 Dream Lab</h2>
@@ -68,7 +75,7 @@
       <h3 class="text-sm font-semibold text-slate-300 mb-3">📥 Pull nuovo modello</h3>
       <form hx-post="/ollama/pull" hx-target="#pull-output" hx-swap="innerHTML"
             hx-encoding="application/x-www-form-urlencoded" class="flex gap-3">
-        <input name="model" type="text" placeholder="es. qwen2.5:7b, gemma3:9b"
+        <input name="model" type="text" placeholder="es. qwen2.5:7b, gemma4:27b"
                class="flex-1 bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-purple-500">
         <button type="submit"
                 class="px-4 py-2 bg-purple-700 hover:bg-purple-600 text-white text-sm rounded-lg transition">

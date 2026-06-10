@@ -1,5 +1,4 @@
 # HyperSpace-AGI v6.0 - Authority Server
-# Espone: /health, /catalog, /resolve, /peers/*
 from __future__ import annotations
 import uvicorn
 from contextlib import asynccontextmanager
@@ -7,7 +6,10 @@ from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 from shared.domain.models import RoutingContext
 from shared.settings import settings
-from authority.model_catalog import get_catalog, get_by_role, get_by_id
+from authority.model_catalog import (
+    get_catalog, get_by_role, get_by_id,
+    get_models_for_ram, get_best_model_for_role_and_ram
+)
 from authority.policy_engine import policy_engine
 from authority.node_registry import node_registry
 
@@ -21,51 +23,33 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title='HyperSpace-AGI Authority',
-    description='Policy Engine v1 + Model Catalog + NodeRegistry',
+    description='Policy Engine + Model Catalog + NodeRegistry',
     version='6.0.0',
     lifespan=lifespan,
 )
 
 
-# ── Health ────────────────────────────────────────────────────────────────────
-
 @app.get('/health')
 async def health() -> dict:
-    alive_nodes = node_registry.get_all(alive_only=True)
-    return {
-        'status':      'ok',
-        'service':     'authority',
-        'version':     '6.0.0',
-        'nodes_alive': len(alive_nodes),
-    }
+    alive = node_registry.get_all(alive_only=True)
+    return {'status': 'ok', 'service': 'authority', 'version': '6.0.0', 'nodes_alive': len(alive)}
 
 
-# ── NodeRegistry (Seed / Bootstrap) ────────────────────────────────────────────
+# ── NodeRegistry ────────────────────────────────────────────────────────────────
 
 @app.post('/peers/announce')
 async def announce_peer(data: dict) -> dict:
-    """
-    Un nodo si annuncia al boot e periodicamente.
-    Risponde con la peer table completa → usata come bootstrap P2P.
-    """
     try:
         entry  = node_registry.announce(data)
         peers  = node_registry.get_all(alive_only=True)
-        # escludi il nodo che si è appena annunciato dalla lista peers
         others = [p.to_dict() for p in peers if p.node_id != entry.node_id]
-        return {
-            'status':  'registered',
-            'node_id': entry.node_id,
-            'peers':   others,
-            'total':   len(others),
-        }
+        return {'status': 'registered', 'node_id': entry.node_id, 'peers': others, 'total': len(others)}
     except ValueError as e:
         return JSONResponse(status_code=400, content={'error': str(e)})
 
 
 @app.get('/peers')
 async def list_peers(alive_only: bool = True) -> dict:
-    """Lista tutti i nodi noti al registry."""
     nodes = node_registry.get_all(alive_only=alive_only)
     return {
         'total': len(nodes),
@@ -76,7 +60,6 @@ async def list_peers(alive_only: bool = True) -> dict:
 
 @app.get('/peers/{node_id}')
 async def get_peer(node_id: str) -> dict:
-    """Dettaglio singolo nodo."""
     entry = node_registry.get(node_id)
     if not entry:
         return JSONResponse(status_code=404, content={'error': f'node not found: {node_id}'})
@@ -85,32 +68,62 @@ async def get_peer(node_id: str) -> dict:
 
 @app.delete('/peers/{node_id}')
 async def remove_peer(node_id: str) -> dict:
-    """Rimuove manualmente un nodo dal registry."""
-    removed = node_registry.remove(node_id)
-    if not removed:
+    if not node_registry.remove(node_id):
         return JSONResponse(status_code=404, content={'error': f'node not found: {node_id}'})
     return {'status': 'removed', 'node_id': node_id}
 
 
-# ── Model Catalog ──────────────────────────────────────────────────────────────────
+# ── Model Catalog ────────────────────────────────────────────────────────────────
 
 @app.get('/catalog')
 async def list_catalog() -> dict:
     catalog = get_catalog()
     return {
         'total': len(catalog),
-        'models': [
-            {
-                'model_id':       e.profile.model_id,
-                'ollama_tag':     e.ollama_tag,
-                'role':           e.role,
-                'priority':       e.priority,
-                'size_class':     e.profile.size_class,
-                'ram_required_gb': e.profile.ram_required_gb,
-                'is_available':   e.is_available,
-            }
-            for e in catalog
-        ],
+        'models': [{
+            'model_id': e.profile.model_id, 'ollama_tag': e.ollama_tag,
+            'role': e.role, 'priority': e.priority,
+            'size_class': e.profile.size_class,
+            'ram_required_gb': e.profile.ram_required_gb,
+            'is_available': e.is_available,
+        } for e in catalog],
+    }
+
+
+@app.get('/catalog/ram/{ram_gb}')
+async def catalog_for_ram(ram_gb: float) -> dict:
+    """
+    Restituisce i modelli adatti per un nodo con ram_gb RAM disponibile.
+    Usato da AutoPull al boot del nodo.
+    """
+    models = get_models_for_ram(ram_gb)
+    return {
+        'ram_gb':      ram_gb,
+        'usable_ram':  round(ram_gb * 0.85, 1),
+        'total':       len(models),
+        'models': [{
+            'model_id':       e.profile.model_id,
+            'ollama_tag':     e.ollama_tag,
+            'role':           e.role,
+            'ram_required_gb': e.profile.ram_required_gb,
+            'reasoning_score': e.profile.reasoning_score,
+            'priority':       e.priority,
+        } for e in models],
+    }
+
+
+@app.get('/catalog/best/{role}/{ram_gb}')
+async def best_for_role(role: str, ram_gb: float) -> dict:
+    """Miglior modello per un ruolo dato che entra nella RAM."""
+    entry = get_best_model_for_role_and_ram(role, ram_gb)
+    if not entry:
+        return JSONResponse(status_code=404,
+                            content={'error': f'no model for role={role} ram={ram_gb}GB'})
+    return {
+        'role': role, 'ram_gb': ram_gb,
+        'model_id': entry.profile.model_id,
+        'ollama_tag': entry.ollama_tag,
+        'ram_required_gb': entry.profile.ram_required_gb,
     }
 
 
@@ -118,7 +131,7 @@ async def list_catalog() -> dict:
 async def list_by_role(role: str) -> dict:
     entries = get_by_role(role)
     if not entries:
-        return JSONResponse(status_code=404, content={'error': f'no models found for role: {role}'})
+        return JSONResponse(status_code=404, content={'error': f'no models for role: {role}'})
     return {'role': role, 'models': [e.model_dump() for e in entries]}
 
 
@@ -137,9 +150,5 @@ async def resolve_routing(ctx: RoutingContext) -> dict:
 
 
 if __name__ == '__main__':
-    uvicorn.run(
-        'authority.server:app',
-        host='0.0.0.0',
-        port=settings.authority_api_port,
-        reload=False,
-    )
+    uvicorn.run('authority.server:app', host='0.0.0.0',
+                port=settings.authority_api_port, reload=False)

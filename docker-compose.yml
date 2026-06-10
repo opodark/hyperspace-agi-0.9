@@ -1,5 +1,5 @@
 # HyperSpace-AGI v6.0 - Docker Compose
-# P2P seed via Authority + gossip + DiceBear avatars
+# NODE_RAM_GB: abilita auto-pull modelli adatti alla RAM del nodo
 
 services:
   ollama:
@@ -37,7 +37,6 @@ services:
       - OLLAMA_BASE_URL=http://host.docker.internal:11434
       - WEBUI_SECRET_KEY=hyperspace-agi-v60-secret-key
       - ENABLE_SIGNUP=false
-      - ENABLE_ADMIN_EXPLORE=true
     extra_hosts:
       - "host.docker.internal:host-gateway"
     restart: unless-stopped
@@ -65,6 +64,8 @@ services:
       - NODE_OWNER=alberto
       - NODE_COLOR=#7c3aed
       - NODE_AVATAR_STYLE=bottts
+      # --- RAM: MacBook Air 16GB → modelli fino a ~13GB usabili ---
+      - NODE_RAM_GB=16
       # --- modelli ---
       - OLLAMA_BASE_URL=http://ollama:11434
       - DEFAULT_AGENT_MODEL=qwen2.5:7b
@@ -105,11 +106,13 @@ services:
       - NODE_OWNER=alberto
       - NODE_COLOR=#0ea5e9
       - NODE_AVATAR_STYLE=bottts
-      # --- modelli ---
+      # --- RAM: Ubuntu 32GB DDR5 → modelli fino a ~27GB usabili ---
+      - NODE_RAM_GB=32
+      # --- modelli (ubuntu supporta modelli più grandi) ---
       - OLLAMA_BASE_URL=http://ollama:11434
-      - DEFAULT_AGENT_MODEL=qwen2.5:7b
+      - DEFAULT_AGENT_MODEL=qwen2.5:32b
       - DEFAULT_CODER_MODEL=qwen2.5-coder:7b
-      - DEFAULT_REASONER_MODEL=batiai/gemma4-12b:q4
+      - DEFAULT_REASONER_MODEL=gemma4:27b
       # --- p2p ---
       - AUTHORITY_URL=http://authority:8766
       - NODE_PEERS=node:8765
@@ -161,7 +164,6 @@ services:
       - WORKER_API_PORT=8767
       - OLLAMA_BASE_URL=http://ollama:11434
       - DREAM_VALIDATOR_ENABLED=true
-      - VALIDATION_VOTE_STORE_ENABLED=true
       - DREAM_REPLAY_ENABLED=true
       - CONTESTED_MEMORY_ENABLED=true
     restart: unless-stopped
@@ -192,6 +194,7 @@ services:
       - DEFAULT_REASONER_MODEL=batiai/gemma4-12b:q4
       - SMART_ROUTING_ENABLED=true
       - ROUTING_LEVELS=4
+      - NODE_URLS=http://node:8765,http://node-b:8770
     restart: unless-stopped
     depends_on:
       ollama:

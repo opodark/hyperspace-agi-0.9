@@ -1,7 +1,9 @@
-# HyperSpace-AGI v6.0 - Dashboard Server
+# HyperSpace-AGI v6.0 - Dashboard Server con Authority section
 from __future__ import annotations
+import asyncio
 import docker
 import httpx
+import json
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
@@ -37,8 +39,8 @@ def get_container_status(name: str) -> dict:
     try:
         c = DOCKER_CLIENT.containers.get(name)
         health = c.attrs.get('State', {}).get('Health', {})
-        health_status = health.get('Status', 'none') if health else 'none'
-        return {'status': c.status, 'health': health_status, 'running': c.status == 'running'}
+        return {'status': c.status, 'health': health.get('Status', 'none') if health else 'none',
+                'running': c.status == 'running'}
     except Exception:
         return {'status': 'not found', 'health': 'none', 'running': False}
 
@@ -65,19 +67,12 @@ async def get_node_dreams(url: str) -> dict | None:
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
             r = await client.get(f'{url}/dreams')
-            if r.status_code == 200:
-                return r.json()
+            return r.json() if r.status_code == 200 else None
     except Exception:
-        pass
-    return None
+        return None
 
 
 async def get_all_peers() -> list[dict]:
-    """
-    Aggrega self + peers da TUTTI i NODE_URLS.
-    Deduplicazione per node_id — in caso di conflitto vince
-    l'entry con last_seen più recente.
-    """
     seen: dict[str, dict] = {}
 
     async def fetch_one(url: str) -> None:
@@ -87,40 +82,50 @@ async def get_all_peers() -> list[dict]:
                 if r.status_code != 200:
                     return
                 data = r.json()
-                # includi il nodo stesso (self)
-                candidates = [data['self']] + data.get('peers', [])
-                for p in candidates:
+                for p in [data['self']] + data.get('peers', []):
                     nid = p.get('node_id', '')
                     if not nid or nid.startswith('__bootstrap'):
                         continue
-                    existing = seen.get(nid)
-                    if existing is None or p.get('last_seen', 0) > existing.get('last_seen', 0):
+                    if p.get('last_seen', 0) > seen.get(nid, {}).get('last_seen', 0):
                         seen[nid] = p
         except Exception:
             pass
 
-    import asyncio
     await asyncio.gather(*[fetch_one(url) for url in NODE_URLS])
-    # ordina: prima alive, poi per node_id
     return sorted(seen.values(), key=lambda p: (not p.get('alive', False), p.get('node_id', '')))
+
+
+async def get_authority_data() -> dict:
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            peers_r, catalog_r = await asyncio.gather(
+                client.get(f'{AUTHORITY_URL}/peers?alive_only=false'),
+                client.get(f'{AUTHORITY_URL}/catalog'),
+            )
+            registry = peers_r.json() if peers_r.status_code == 200 else {'total': 0, 'alive': 0, 'nodes': []}
+            catalog  = catalog_r.json().get('models', []) if catalog_r.status_code == 200 else []
+            return {'registry': registry, 'catalog': catalog}
+    except Exception:
+        return {'registry': {'total': 0, 'alive': 0, 'nodes': []}, 'catalog': []}
 
 
 # ── Routes ────────────────────────────────────────────────────────────────────
 
 @app.get('/', response_class=HTMLResponse)
 async def index(request: Request):
-    import asyncio
     services = [{**svc, **get_container_status(svc['name'])} for svc in SERVICES]
-    models, stats, dream_nodes, peers = await asyncio.gather(
+    models, stats, dream_results, peers, auth_data = await asyncio.gather(
         get_ollama_models(),
         get_routing_stats(),
         asyncio.gather(*[get_node_dreams(url) for url in NODE_URLS]),
         get_all_peers(),
+        get_authority_data(),
     )
-    dream_nodes = [d for d in dream_nodes if d is not None]
+    dream_nodes = [d for d in dream_results if d is not None]
     return templates.TemplateResponse('index.html', {
         'request': request, 'services': services, 'models': models,
         'stats': stats, 'dream_nodes': dream_nodes, 'peers': peers,
+        'registry': auth_data['registry'], 'catalog': auth_data['catalog'],
     })
 
 
@@ -144,7 +149,6 @@ async def partial_stats(request: Request):
 
 @app.get('/partials/dreams', response_class=HTMLResponse)
 async def partial_dreams(request: Request):
-    import asyncio
     results = await asyncio.gather(*[get_node_dreams(url) for url in NODE_URLS])
     dream_nodes = [d for d in results if d is not None]
     return templates.TemplateResponse('partials/dreams.html', {'request': request, 'nodes': dream_nodes})
@@ -154,6 +158,16 @@ async def partial_dreams(request: Request):
 async def partial_peers(request: Request):
     peers = await get_all_peers()
     return templates.TemplateResponse('partials/peers.html', {'request': request, 'peers': peers})
+
+
+@app.get('/partials/authority', response_class=HTMLResponse)
+async def partial_authority(request: Request):
+    auth_data = await get_authority_data()
+    return templates.TemplateResponse('partials/authority.html', {
+        'request': request,
+        'registry': auth_data['registry'],
+        'catalog':  auth_data['catalog'],
+    })
 
 
 @app.post('/container/{name}/restart')
@@ -203,23 +217,20 @@ async def pull_model(request: Request):
     async def stream_pull():
         try:
             async with httpx.AsyncClient(timeout=600.0) as client:
-                async with client.stream('POST', f'{OLLAMA_URL}/api/pull', json={'name': model}) as resp:
+                async with client.stream('POST', f'{OLLAMA_URL}/api/pull',
+                                         json={'name': model}) as resp:
                     async for line in resp.aiter_lines():
                         if not line:
                             continue
-                        import json
                         try:
-                            data      = json.loads(line)
-                            status    = data.get('status', '')
-                            total     = data.get('completed', 0)
-                            completed = data.get('completed', 0)
-                            tot       = data.get('total', 0)
+                            data   = json.loads(line)
+                            status = data.get('status', '')
+                            tot    = data.get('total', 0)
+                            comp   = data.get('completed', 0)
                             if tot > 0:
-                                pct    = int(completed * 100 / tot)
-                                mb     = completed // 1_048_576
-                                tot_mb = tot // 1_048_576
+                                pct    = int(comp * 100 / tot)
                                 bar    = '█' * (pct // 5) + '░' * (20 - pct // 5)
-                                msg    = f'[{bar}] {pct}% ({mb}/{tot_mb} MB)'
+                                msg    = f'[{bar}] {pct}% ({comp // 1_048_576}/{tot // 1_048_576} MB)'
                             else:
                                 msg = status
                             yield f'data: <div class="font-mono text-xs text-green-300">{msg}</div>\n\n'
