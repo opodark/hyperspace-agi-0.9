@@ -1,4 +1,4 @@
-# HyperSpace-AGI v6.0 - GossipService con seed bootstrap via Authority
+# HyperSpace-AGI v6.0 - GossipService con naming + avatar
 from __future__ import annotations
 import asyncio
 import logging
@@ -10,31 +10,39 @@ import httpx
 
 logger = logging.getLogger('gossip')
 
-GOSSIP_INTERVAL  = int(os.getenv('GOSSIP_INTERVAL_SEC', '30'))
-ANNOUNCE_INTERVAL = int(os.getenv('ANNOUNCE_INTERVAL_SEC', '60'))  # ri-annuncio all'Authority
-GOSSIP_TIMEOUT   = 5.0
-PEER_TTL_SEC     = 90
-AUTHORITY_URL    = os.getenv('AUTHORITY_URL', 'http://authority:8766')
+GOSSIP_INTERVAL   = int(os.getenv('GOSSIP_INTERVAL_SEC', '30'))
+ANNOUNCE_INTERVAL = int(os.getenv('ANNOUNCE_INTERVAL_SEC', '60'))
+GOSSIP_TIMEOUT    = 5.0
+PEER_TTL_SEC      = 90
+AUTHORITY_URL     = os.getenv('AUTHORITY_URL', 'http://authority:8766')
+
+DICEBEAR_BASE = 'https://api.dicebear.com/10.x'
 
 
 @dataclass
 class PeerInfo:
-    node_id:   str
-    host:      str
-    port:      int
-    nickname:  str        = ''
-    location:  str        = ''
-    tags:      list[str]  = field(default_factory=list)
-    owner:     str        = ''
-    color:     str        = '#7c3aed'
-    models:    list[str]  = field(default_factory=list)
-    load:      float      = 0.0
-    state:     str        = 'active'
-    last_seen: float      = field(default_factory=time.time)
+    node_id:      str
+    host:         str
+    port:         int
+    nickname:     str       = ''
+    location:     str       = ''
+    tags:         list[str] = field(default_factory=list)
+    owner:        str       = ''
+    color:        str       = '#7c3aed'
+    avatar_style: str       = 'bottts'
+    models:       list[str] = field(default_factory=list)
+    load:         float     = 0.0
+    state:        str       = 'active'
+    last_seen:    float     = field(default_factory=time.time)
 
     @property
     def url(self) -> str:
         return f'http://{self.host}:{self.port}'
+
+    @property
+    def avatar_url(self) -> str:
+        bg = self.color.lstrip('#')
+        return f'{DICEBEAR_BASE}/{self.avatar_style}/svg?seed={self.node_id}&backgroundColor={bg}'
 
     def is_alive(self) -> bool:
         return (time.time() - self.last_seen) < PEER_TTL_SEC
@@ -44,36 +52,39 @@ class PeerInfo:
 
     def to_dict(self) -> dict:
         return {
-            'node_id':   self.node_id,
-            'host':      self.host,
-            'port':      self.port,
-            'nickname':  self.nickname,
-            'location':  self.location,
-            'tags':      self.tags,
-            'owner':     self.owner,
-            'color':     self.color,
-            'models':    self.models,
-            'load':      self.load,
-            'state':     self.state,
-            'last_seen': self.last_seen,
-            'alive':     self.is_alive(),
+            'node_id':      self.node_id,
+            'host':         self.host,
+            'port':         self.port,
+            'nickname':     self.nickname,
+            'location':     self.location,
+            'tags':         self.tags,
+            'owner':        self.owner,
+            'color':        self.color,
+            'avatar_style': self.avatar_style,
+            'avatar_url':   self.avatar_url,
+            'models':       self.models,
+            'load':         self.load,
+            'state':        self.state,
+            'last_seen':    self.last_seen,
+            'alive':        self.is_alive(),
         }
 
     @classmethod
     def from_dict(cls, d: dict) -> 'PeerInfo':
         return cls(
-            node_id   = d.get('node_id', ''),
-            host      = d.get('host', ''),
-            port      = int(d.get('port', 8765)),
-            nickname  = d.get('nickname', ''),
-            location  = d.get('location', ''),
-            tags      = d.get('tags', []),
-            owner     = d.get('owner', ''),
-            color     = d.get('color', '#7c3aed'),
-            models    = d.get('models', []),
-            load      = d.get('load', 0.0),
-            state     = d.get('state', 'active'),
-            last_seen = time.time(),
+            node_id      = d.get('node_id', ''),
+            host         = d.get('host', ''),
+            port         = int(d.get('port', 8765)),
+            nickname     = d.get('nickname', ''),
+            location     = d.get('location', ''),
+            tags         = d.get('tags', []),
+            owner        = d.get('owner', ''),
+            color        = d.get('color', '#7c3aed'),
+            avatar_style = d.get('avatar_style', 'bottts'),
+            models       = d.get('models', []),
+            load         = d.get('load', 0.0),
+            state        = d.get('state', 'active'),
+            last_seen    = time.time(),
         )
 
     @classmethod
@@ -81,28 +92,28 @@ class PeerInfo:
         raw_tags = os.getenv('NODE_TAGS', '')
         tags = [t.strip() for t in raw_tags.split(',') if t.strip()]
         return cls(
-            node_id  = node_id,
-            host     = host,
-            port     = port,
-            models   = models,
-            nickname = os.getenv('NODE_NICKNAME', ''),
-            location = os.getenv('NODE_LOCATION', ''),
-            tags     = tags,
-            owner    = os.getenv('NODE_OWNER', ''),
-            color    = os.getenv('NODE_COLOR', '#7c3aed'),
+            node_id      = node_id,
+            host         = host,
+            port         = port,
+            models       = models,
+            nickname     = os.getenv('NODE_NICKNAME', ''),
+            location     = os.getenv('NODE_LOCATION', ''),
+            tags         = tags,
+            owner        = os.getenv('NODE_OWNER', ''),
+            color        = os.getenv('NODE_COLOR', '#7c3aed'),
+            avatar_style = os.getenv('NODE_AVATAR_STYLE', 'bottts'),
         )
 
 
 class GossipService:
     def __init__(self, self_info: PeerInfo):
-        self.self_info  = self_info
+        self.self_info = self_info
         self._peers: dict[str, PeerInfo] = {}
         self._task_gossip:   Optional[asyncio.Task] = None
         self._task_announce: Optional[asyncio.Task] = None
         self._load_static_peers()
 
     def _load_static_peers(self) -> None:
-        """Bootstrap statico da NODE_PEERS (fallback se Authority non raggiungibile)."""
         raw = os.getenv('NODE_PEERS', '')
         if not raw:
             return
@@ -119,14 +130,7 @@ class GossipService:
             except ValueError:
                 logger.warning(f'Gossip: entry non valida: {entry}')
 
-    # ── Authority seed bootstrap ────────────────────────────────────────────────
-
     async def announce_to_authority(self) -> bool:
-        """
-        Annuncia sé stesso all'Authority e ottiene la peer table.
-        Chiamato al boot e ogni ANNOUNCE_INTERVAL secondi.
-        Restituisce True se il seed ha risposto.
-        """
         try:
             async with httpx.AsyncClient(timeout=8.0) as client:
                 r = await client.post(
@@ -135,19 +139,16 @@ class GossipService:
                 )
                 if r.status_code == 200:
                     data = r.json()
-                    peers_from_seed = data.get('peers', [])
-                    for p in peers_from_seed:
+                    for p in data.get('peers', []):
                         self.register_peer(p)
                     logger.info(
                         f'Gossip: annunciato a Authority — '
-                        f'ricevuti {len(peers_from_seed)} peer dal seed'
+                        f'{len(data.get("peers", []))} peer ricevuti'
                     )
                     return True
         except Exception as e:
             logger.warning(f'Gossip: Authority non raggiungibile: {e}')
         return False
-
-    # ── Peer management ───────────────────────────────────────────────────────────
 
     def get_peers(self) -> list[PeerInfo]:
         return [p for p in self._peers.values() if p.is_alive()]
@@ -159,27 +160,25 @@ class GossipService:
         node_id = info.get('node_id', '').strip()
         if not node_id or node_id == self.self_info.node_id:
             return
-
         host = info.get('host', '')
         port = int(info.get('port', 8765))
-
         bootstrap_key = f'__bootstrap_{host}:{port}'
         if bootstrap_key in self._peers:
             del self._peers[bootstrap_key]
-
         existing = self._peers.get(node_id)
         if existing:
-            existing.host      = host or existing.host
-            existing.port      = port or existing.port
-            existing.nickname  = info.get('nickname', existing.nickname)
-            existing.location  = info.get('location', existing.location)
-            existing.tags      = info.get('tags', existing.tags)
-            existing.owner     = info.get('owner', existing.owner)
-            existing.color     = info.get('color', existing.color)
-            existing.models    = info.get('models', existing.models)
-            existing.load      = info.get('load', existing.load)
-            existing.state     = info.get('state', existing.state)
-            existing.last_seen = time.time()
+            existing.host         = host or existing.host
+            existing.port         = port or existing.port
+            existing.nickname     = info.get('nickname', existing.nickname)
+            existing.location     = info.get('location', existing.location)
+            existing.tags         = info.get('tags', existing.tags)
+            existing.owner        = info.get('owner', existing.owner)
+            existing.color        = info.get('color', existing.color)
+            existing.avatar_style = info.get('avatar_style', existing.avatar_style)
+            existing.models       = info.get('models', existing.models)
+            existing.load         = info.get('load', existing.load)
+            existing.state        = info.get('state', existing.state)
+            existing.last_seen    = time.time()
         else:
             self._peers[node_id] = PeerInfo.from_dict(info)
             logger.info(
@@ -196,8 +195,6 @@ class GossipService:
         d['last_seen'] = time.time()
         d['alive']     = True
         return d
-
-    # ── Gossip loop ───────────────────────────────────────────────────────────────────
 
     async def _ping_peer(self, peer: PeerInfo) -> bool:
         try:
@@ -233,21 +230,16 @@ class GossipService:
             logger.info(f'Gossip: peer scaduto rimosso {nid}')
             del self._peers[nid]
 
-    # ── Lifecycle ──────────────────────────────────────────────────────────────────────
-
     async def start(self) -> None:
         logger.info(
             f'GossipService avviato — '
             f'{self.self_info.node_id} '
-            f'("{self.self_info.display_name()}")'
+            f'("{self.self_info.display_name()}") '
+            f'avatar={self.self_info.avatar_style}'
         )
-        # 1. annuncio immediato all'Authority per il bootstrap
         await self.announce_to_authority()
-        # 2. primo round gossip subito dopo
         await self._gossip_round()
-        # 3. loop gossip periodico
         self._task_gossip   = asyncio.create_task(self._gossip_loop())
-        # 4. loop ri-annuncio periodico all'Authority
         self._task_announce = asyncio.create_task(self._announce_loop())
 
     async def _gossip_loop(self) -> None:

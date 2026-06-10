@@ -1,6 +1,5 @@
 # HyperSpace-AGI v6.0 - Docker Compose
-# P2P: seed bootstrap via Authority + gossip diretto
-# NODE_PEERS = fallback statico se Authority non raggiungibile
+# P2P seed via Authority + gossip + DiceBear avatars
 
 services:
   ollama:
@@ -59,12 +58,13 @@ services:
       - NODE_API_PORT=8765
       - NODE_ID=node-a
       - NODE_HOST=node
-      # --- naming ---
+      # --- naming & avatar ---
       - NODE_NICKNAME=macbook-alberto
       - NODE_LOCATION=MacBook Air M2
       - NODE_TAGS=dev,macos,arm64
       - NODE_OWNER=alberto
       - NODE_COLOR=#7c3aed
+      - NODE_AVATAR_STYLE=bottts
       # --- modelli ---
       - OLLAMA_BASE_URL=http://ollama:11434
       - DEFAULT_AGENT_MODEL=qwen2.5:7b
@@ -98,12 +98,13 @@ services:
       - NODE_API_PORT=8770
       - NODE_ID=node-b
       - NODE_HOST=node-b
-      # --- naming ---
+      # --- naming & avatar ---
       - NODE_NICKNAME=ubuntu-server
       - NODE_LOCATION=Ubuntu 26.04 LTS
       - NODE_TAGS=linux,x86,server
       - NODE_OWNER=alberto
       - NODE_COLOR=#0ea5e9
+      - NODE_AVATAR_STYLE=bottts
       # --- modelli ---
       - OLLAMA_BASE_URL=http://ollama:11434
       - DEFAULT_AGENT_MODEL=qwen2.5:7b

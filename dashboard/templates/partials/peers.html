@@ -1,25 +1,35 @@
-<!-- P2P Peer Map - nickname + location + tags + color -->
+<!-- P2P Peer Map - DiceBear bottts avatar + naming completo -->
 {% if peers %}
-<div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+<div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
   {% for peer in peers %}
-  <div class="card p-3 {% if not peer.alive %}opacity-40{% endif %}"
+  <div class="card p-4 {% if not peer.alive %}opacity-40{% endif %} transition-all hover:scale-105"
        style="border-left: 3px solid {{ peer.color if peer.color else '#7c3aed' }}">
 
-    <!-- Header: stato + nome -->
-    <div class="flex items-center gap-2 mb-2">
-      <span class="w-2 h-2 rounded-full flex-shrink-0
-        {% if peer.alive %}bg-green-400 animate-pulse{% else %}bg-red-400{% endif %}"></span>
-      <span class="font-semibold text-sm text-slate-100 truncate">
-        {{ peer.nickname if peer.nickname else peer.node_id }}
-      </span>
+    <!-- Avatar + nome -->
+    <div class="flex items-center gap-3 mb-3">
+      <div class="relative flex-shrink-0">
+        <img
+          src="{{ peer.avatar_url if peer.avatar_url else 'https://api.dicebear.com/10.x/bottts/svg?seed=' + peer.node_id }}"
+          class="w-12 h-12 rounded-full ring-2"
+          style="ring-color: {{ peer.color if peer.color else '#7c3aed' }}"
+          alt="{{ peer.nickname or peer.node_id }}"
+          onerror="this.style.display='none'"
+        />
+        <!-- pallino stato sovrapposto -->
+        <span class="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-slate-900
+          {% if peer.alive %}bg-green-400{% else %}bg-red-400{% endif %}"></span>
+      </div>
+      <div class="min-w-0">
+        <div class="font-semibold text-sm text-slate-100 truncate">
+          {{ peer.nickname if peer.nickname else peer.node_id }}
+        </div>
+        {% if peer.nickname %}
+        <div class="font-mono text-xs text-slate-600 truncate">{{ peer.node_id }}</div>
+        {% endif %}
+      </div>
     </div>
 
-    <!-- node_id tecnico (sotto, piccolo) -->
-    {% if peer.nickname %}
-    <div class="font-mono text-xs text-slate-600 mb-2">{{ peer.node_id }}</div>
-    {% endif %}
-
-    <!-- Stato e load -->
+    <!-- Stato + load -->
     <div class="flex items-center gap-1 text-xs mb-2">
       <span>{% if peer.state == 'dreaming' %}🌀
             {% elif peer.state == 'sleeping' %}😴
@@ -29,7 +39,13 @@
                    {% else %}text-green-400{% endif %}">
         {{ peer.state }}
       </span>
-      <span class="ml-auto text-slate-600">{{ (peer.load * 100) | int }}%</span>
+      <div class="ml-auto flex items-center gap-1">
+        <div class="w-12 bg-slate-700 rounded-full h-1">
+          <div class="h-1 rounded-full bg-purple-500"
+               style="width: {{ (peer.load * 100) | int }}%"></div>
+        </div>
+        <span class="text-slate-600 text-xs">{{ (peer.load * 100) | int }}%</span>
+      </div>
     </div>
 
     <!-- Location -->
