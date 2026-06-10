@@ -1,5 +1,7 @@
-# HyperSpace-AGI v6.0 - Node Server con P2P + Shared Dreams
+# HyperSpace-AGI v6.0 - Node Server con P2P + Shared Dreams + Auto-pull
 from __future__ import annotations
+import asyncio
+import logging
 import os
 import uuid
 import uvicorn
@@ -12,11 +14,15 @@ from node.memory.tiered_store import TieredMemoryStore
 from node.runtime.agent_runtime import AgentRuntime
 from node.runtime.gossip_service import GossipService, PeerInfo
 from node.runtime.node_state import NodeStateManager, DreamEntry
+from node.runtime.auto_pull import run_auto_pull
+
+logger = logging.getLogger('node')
 
 NODE_ID   = os.getenv('NODE_ID', 'node-default')
 NODE_HOST = os.getenv('NODE_HOST', NODE_ID)
 NODE_PORT = int(os.getenv('NODE_API_PORT', '8765'))
 MODELS    = os.getenv('DEFAULT_AGENT_MODEL', 'qwen2.5:7b').split(',')
+NODE_RAM_GB = float(os.getenv('NODE_RAM_GB', '0'))
 
 _self_info = PeerInfo.from_env(node_id=NODE_ID, host=NODE_HOST, port=NODE_PORT, models=MODELS)
 _gossip    = GossipService(self_info=_self_info)
@@ -24,25 +30,47 @@ _memory    = TieredMemoryStore()
 _agent     = AgentRuntime(memory_store=_memory)
 _state     = NodeStateManager(node_id=NODE_ID)
 
+# risultato auto-pull (popolato al boot, consultabile via /auto-pull/status)
+_auto_pull_result: dict = {'status': 'pending'}
+
+
+async def _run_auto_pull_bg() -> None:
+    """Esegue auto-pull in background senza bloccare il boot."""
+    global _auto_pull_result
+    try:
+        logger.info(f'AutoPull: avvio per {NODE_ID} (RAM={NODE_RAM_GB}GB)')
+        result = await run_auto_pull()
+        _auto_pull_result = result
+        pulled = result.get('pulled', [])
+        if pulled:
+            logger.info(f'AutoPull: completato — pullati {pulled}')
+        else:
+            logger.info(f'AutoPull: tutti i modelli già presenti ✅')
+    except Exception as e:
+        _auto_pull_result = {'status': 'error', 'reason': str(e)}
+        logger.error(f'AutoPull: errore {e}')
+
 
 async def _propagate_dream(dream: DreamEntry) -> None:
-    """Propaga un dream a tutti i peer attivi via gossip."""
     import httpx
     peers = _gossip.get_peers()
     for peer in peers:
         try:
             async with httpx.AsyncClient(timeout=5.0) as client:
-                await client.post(
-                    f'{peer.url}/dreams/receive',
-                    json=dream.to_dict()
-                )
+                await client.post(f'{peer.url}/dreams/receive', json=dream.to_dict())
         except Exception:
             pass
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # 1. gossip + authority announce
     await _gossip.start()
+    # 2. auto-pull in background (non blocca se Ollama è lento)
+    if NODE_RAM_GB > 0:
+        asyncio.create_task(_run_auto_pull_bg())
+    else:
+        _auto_pull_result.update({'status': 'skipped', 'reason': 'NODE_RAM_GB not set'})
     yield
     await _gossip.stop()
 
@@ -57,10 +85,22 @@ app = FastAPI(
 @app.get('/health')
 async def health() -> dict:
     return {
-        'status':   'ok', 'service': 'node', 'version': '6.0.0',
-        'node_id':  NODE_ID, 'nickname': _self_info.nickname,
-        'location': _self_info.location,
+        'status':    'ok', 'service': 'node', 'version': '6.0.0',
+        'node_id':   NODE_ID, 'nickname': _self_info.nickname,
+        'location':  _self_info.location,
+        'ram_gb':    NODE_RAM_GB,
+        'auto_pull': _auto_pull_result.get('status', 'pending'),
         **_state.get_status(),
+    }
+
+
+@app.get('/auto-pull/status')
+async def auto_pull_status() -> dict:
+    """Stato dell'ultimo auto-pull: modelli pullati, falliti, già installati."""
+    return {
+        'node_id': NODE_ID,
+        'ram_gb':  NODE_RAM_GB,
+        **_auto_pull_result,
     }
 
 
@@ -141,7 +181,6 @@ async def list_dreams() -> dict:
 
 @app.post('/dreams/add')
 async def add_dream(content: str, score: float = 0.75) -> dict:
-    """Crea un dream e lo propaga a tutti i peer."""
     dream = DreamEntry(
         dream_id    = str(uuid.uuid4())[:8],
         content     = content,
@@ -150,15 +189,12 @@ async def add_dream(content: str, score: float = 0.75) -> dict:
     )
     _state.add_dream(dream)
     _gossip.update_self_state('dreaming')
-    # propaga ai peer in background
-    import asyncio
     asyncio.create_task(_propagate_dream(dream))
     return dream.to_dict()
 
 
 @app.post('/dreams/receive')
 async def receive_dream(data: dict) -> dict:
-    """Riceve un dream propagato da un peer."""
     dream = _state.receive_dream(data)
     if dream is None:
         return {'status': 'already_known', 'dream_id': data.get('dream_id')}
@@ -170,8 +206,6 @@ async def vote_dream(dream_id: str) -> dict:
     result = _state.vote_dream(dream_id, voter_node=NODE_ID)
     if result is None:
         return JSONResponse(status_code=404, content={'error': 'dream not found'})
-    # propaga il voto aggiornato ai peer
-    import asyncio
     asyncio.create_task(_propagate_dream(result))
     return result.to_dict()
 
