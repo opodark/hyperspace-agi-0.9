@@ -1,4 +1,4 @@
-# HyperSpace-AGI v6.0 - Node Server con P2P Gossip
+# HyperSpace-AGI v6.0 - Node Server
 from __future__ import annotations
 import os
 import uuid
@@ -16,12 +16,14 @@ from node.runtime.node_state import NodeStateManager, DreamEntry
 NODE_ID   = os.getenv('NODE_ID', 'node-default')
 NODE_HOST = os.getenv('NODE_HOST', NODE_ID)
 NODE_PORT = int(os.getenv('NODE_API_PORT', '8765'))
+MODELS    = os.getenv('DEFAULT_AGENT_MODEL', 'qwen2.5:7b').split(',')
 
-_self_info = PeerInfo(
+# PeerInfo costruito da env (include nickname, location, tags, owner, color)
+_self_info = PeerInfo.from_env(
     node_id = NODE_ID,
     host    = NODE_HOST,
     port    = NODE_PORT,
-    models  = os.getenv('DEFAULT_AGENT_MODEL', 'qwen2.5:7b').split(','),
+    models  = MODELS,
 )
 
 _gossip = GossipService(self_info=_self_info)
@@ -37,18 +39,25 @@ async def lifespan(app: FastAPI):
     await _gossip.stop()
 
 
-app = FastAPI(title='HyperSpace-AGI Node', version='6.0.0', lifespan=lifespan)
+app = FastAPI(
+    title=f'HyperSpace-AGI Node [{_self_info.display_name()}]',
+    version='6.0.0',
+    lifespan=lifespan
+)
 
-
-# ── Health ────────────────────────────────────────────────────────────────────
 
 @app.get('/health')
 async def health() -> dict:
-    status = _state.get_status()
-    return {'status': 'ok', 'service': 'node', 'version': '6.0.0', **status}
+    return {
+        'status':    'ok',
+        'service':   'node',
+        'version':   '6.0.0',
+        'node_id':   NODE_ID,
+        'nickname':  _self_info.nickname,
+        'location':  _self_info.location,
+        **_state.get_status(),
+    }
 
-
-# ── Chat ──────────────────────────────────────────────────────────────────────
 
 class ChatRequest(BaseModel):
     session_id: str
@@ -70,8 +79,6 @@ async def chat(req: ChatRequest) -> dict:
     except Exception as e:
         return JSONResponse(status_code=500, content={'error': str(e)})
 
-
-# ── Memory ────────────────────────────────────────────────────────────────────
 
 @app.get('/memory/{session_id}')
 async def list_memory(session_id: str) -> dict:
@@ -98,32 +105,27 @@ async def prune_memory(threshold: float = 0.25) -> dict:
     return {'pruned_low_score': pruned_score, 'pruned_ttl': pruned_ttl}
 
 
-# ── P2P Gossip ────────────────────────────────────────────────────────────────
-
 @app.post('/gossip/heartbeat')
 async def gossip_heartbeat(peer: dict) -> dict:
     _gossip.register_peer(peer)
     return {
-        'node_id': NODE_ID,
-        'state':   _state.state,
-        'load':    _state.load,
-        'peers':   [p.to_dict() for p in _gossip.get_peers()],
+        'node_id':  NODE_ID,
+        'nickname': _self_info.nickname,
+        'state':    _state.state,
+        'load':     _state.load,
+        'peers':    [p.to_dict() for p in _gossip.get_peers()],
     }
 
 
 @app.get('/gossip/peers')
 async def list_peers() -> dict:
-    alive = _gossip.get_peers()
-    all_p = _gossip.get_all_peers()
     return {
-        'self':        _gossip.self_to_dict(),   # usa self_to_dict → alive=True
-        'peers':       [p.to_dict() for p in all_p],
-        'alive_count': len(alive),
-        'total':       len(all_p),
+        'self':        _gossip.self_to_dict(),
+        'peers':       [p.to_dict() for p in _gossip.get_all_peers()],
+        'alive_count': len(_gossip.get_peers()),
+        'total':       len(_gossip.get_all_peers()),
     }
 
-
-# ── Dream API ─────────────────────────────────────────────────────────────────
 
 @app.get('/dreams')
 async def list_dreams() -> dict:

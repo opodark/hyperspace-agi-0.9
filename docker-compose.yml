@@ -1,6 +1,5 @@
 # HyperSpace-AGI v6.0 - Docker Compose
-# P2P: node-a <-> node-b via GossipService
-# OOM fix: NUM_PARALLEL=1, MAX_LOADED_MODELS=1, KEEP_ALIVE=5m
+# Naming: ogni nodo ha nickname, location, tags, owner, color
 
 services:
   ollama:
@@ -59,10 +58,18 @@ services:
       - NODE_API_PORT=8765
       - NODE_ID=node-a
       - NODE_HOST=node
+      # --- naming ---
+      - NODE_NICKNAME=macbook-alberto
+      - NODE_LOCATION=MacBook Air M2
+      - NODE_TAGS=dev,macos,arm64
+      - NODE_OWNER=alberto
+      - NODE_COLOR=#7c3aed
+      # --- modelli ---
       - OLLAMA_BASE_URL=http://ollama:11434
       - DEFAULT_AGENT_MODEL=qwen2.5:7b
       - DEFAULT_CODER_MODEL=qwen2.5-coder:7b
       - DEFAULT_REASONER_MODEL=batiai/gemma4-12b:q4
+      # --- p2p ---
       - NODE_PEERS=node-b:8770
       - GOSSIP_INTERVAL_SEC=30
     restart: unless-stopped
@@ -86,10 +93,18 @@ services:
       - NODE_API_PORT=8770
       - NODE_ID=node-b
       - NODE_HOST=node-b
+      # --- naming ---
+      - NODE_NICKNAME=ubuntu-server
+      - NODE_LOCATION=Ubuntu 26.04 LTS
+      - NODE_TAGS=linux,x86,server
+      - NODE_OWNER=alberto
+      - NODE_COLOR=#0ea5e9
+      # --- modelli ---
       - OLLAMA_BASE_URL=http://ollama:11434
       - DEFAULT_AGENT_MODEL=qwen2.5:7b
       - DEFAULT_CODER_MODEL=qwen2.5-coder:7b
       - DEFAULT_REASONER_MODEL=batiai/gemma4-12b:q4
+      # --- p2p ---
       - NODE_PEERS=node:8765
       - GOSSIP_INTERVAL_SEC=30
     restart: unless-stopped
@@ -109,6 +124,7 @@ services:
     container_name: hyperspace-authority
     ports:
       - "8766:8766"
+      
     environment:
       - AUTHORITY_API_PORT=8766
       - OLLAMA_BASE_URL=http://ollama:11434

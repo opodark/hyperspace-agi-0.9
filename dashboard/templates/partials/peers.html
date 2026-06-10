@@ -1,42 +1,61 @@
-<!-- P2P Peer Map - aggrega self+peers da tutti i nodi -->
+<!-- P2P Peer Map - nickname + location + tags + color -->
 {% if peers %}
 <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
   {% for peer in peers %}
-  <div class="card p-3 {% if not peer.alive %}opacity-40{% endif %}">
+  <div class="card p-3 {% if not peer.alive %}opacity-40{% endif %}"
+       style="border-left: 3px solid {{ peer.color if peer.color else '#7c3aed' }}">
+
+    <!-- Header: stato + nome -->
     <div class="flex items-center gap-2 mb-2">
       <span class="w-2 h-2 rounded-full flex-shrink-0
         {% if peer.alive %}bg-green-400 animate-pulse{% else %}bg-red-400{% endif %}"></span>
-      <!-- nickname se presente, altrimenti node_id -->
-      <span class="font-semibold text-xs text-slate-200 truncate">
+      <span class="font-semibold text-sm text-slate-100 truncate">
         {{ peer.nickname if peer.nickname else peer.node_id }}
       </span>
     </div>
-    <div class="text-xs text-slate-500 space-y-1">
-      <!-- node_id tecnico sotto il nickname -->
-      {% if peer.nickname %}
-      <div class="font-mono text-slate-600">{{ peer.node_id }}</div>
-      {% endif %}
-      <div class="flex items-center gap-1">
-        <span>{% if peer.state == 'dreaming' %}🌀{% elif peer.state == 'sleeping' %}😴{% else %}⚡{% endif %}</span>
-        <span class="{% if peer.state == 'dreaming' %}text-purple-400
-                     {% elif peer.state == 'sleeping' %}text-slate-500
-                     {% else %}text-green-400{% endif %}">{{ peer.state }}</span>
-        <span class="ml-auto text-slate-600">{{ (peer.load * 100) | int }}%</span>
-      </div>
-      {% if peer.location %}
-      <div class="text-slate-600 truncate">📍 {{ peer.location }}</div>
-      {% endif %}
-      {% if peer.tags %}
-      <div class="flex gap-1 flex-wrap">
-        {% for tag in peer.tags %}
-        <span class="px-1 rounded bg-slate-700 text-slate-400">{{ tag }}</span>
-        {% endfor %}
-      </div>
-      {% endif %}
-      {% if peer.models %}
-      <div class="text-purple-400 truncate">{{ peer.models | join(', ') }}</div>
-      {% endif %}
+
+    <!-- node_id tecnico (sotto, piccolo) -->
+    {% if peer.nickname %}
+    <div class="font-mono text-xs text-slate-600 mb-2">{{ peer.node_id }}</div>
+    {% endif %}
+
+    <!-- Stato e load -->
+    <div class="flex items-center gap-1 text-xs mb-2">
+      <span>{% if peer.state == 'dreaming' %}🌀
+            {% elif peer.state == 'sleeping' %}😴
+            {% else %}⚡{% endif %}</span>
+      <span class="{% if peer.state == 'dreaming' %}text-purple-400
+                   {% elif peer.state == 'sleeping' %}text-slate-500
+                   {% else %}text-green-400{% endif %}">
+        {{ peer.state }}
+      </span>
+      <span class="ml-auto text-slate-600">{{ (peer.load * 100) | int }}%</span>
     </div>
+
+    <!-- Location -->
+    {% if peer.location %}
+    <div class="text-xs text-slate-500 truncate mb-1">📍 {{ peer.location }}</div>
+    {% endif %}
+
+    <!-- Owner -->
+    {% if peer.owner %}
+    <div class="text-xs text-slate-600 mb-1">👤 {{ peer.owner }}</div>
+    {% endif %}
+
+    <!-- Tags -->
+    {% if peer.tags %}
+    <div class="flex gap-1 flex-wrap mb-1">
+      {% for tag in peer.tags %}
+      <span class="px-1.5 py-0.5 rounded text-xs bg-slate-700 text-slate-400">{{ tag }}</span>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+    <!-- Modelli -->
+    {% if peer.models %}
+    <div class="text-xs text-purple-400 truncate mt-1">{{ peer.models | join(', ') }}</div>
+    {% endif %}
+
   </div>
   {% endfor %}
 </div>
