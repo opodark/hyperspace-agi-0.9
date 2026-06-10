@@ -1,5 +1,5 @@
-# HyperSpace-AGI v5.9 - Docker Compose Configuration
-# Optimized for Apple Silicon M-series (16GB RAM)
+# HyperSpace-AGI v6.0 - Docker Compose
+# P2P: node-a <-> node-b via GossipService
 # OOM fix: NUM_PARALLEL=1, MAX_LOADED_MODELS=1, KEEP_ALIVE=5m
 
 services:
@@ -36,7 +36,7 @@ services:
       - "8080:8080"
     environment:
       - OLLAMA_BASE_URL=http://host.docker.internal:11434
-      - WEBUI_SECRET_KEY=hyperspace-agi-v59-secret-key
+      - WEBUI_SECRET_KEY=hyperspace-agi-v60-secret-key
       - ENABLE_SIGNUP=false
       - ENABLE_ADMIN_EXPLORE=true
     extra_hosts:
@@ -57,12 +57,14 @@ services:
       - "8765:8765"
     environment:
       - NODE_API_PORT=8765
+      - NODE_ID=node-a
+      - NODE_HOST=node
       - OLLAMA_BASE_URL=http://ollama:11434
-      - NODE_ID=default-node
-      - NODE_ROLE=orchestrator
       - DEFAULT_AGENT_MODEL=qwen2.5:7b
       - DEFAULT_CODER_MODEL=qwen2.5-coder:7b
       - DEFAULT_REASONER_MODEL=batiai/gemma4-12b:q4
+      - NODE_PEERS=node-b:8770
+      - GOSSIP_INTERVAL_SEC=30
     restart: unless-stopped
     depends_on:
       ollama:
@@ -70,8 +72,35 @@ services:
     networks:
       - hyperspace-net
     volumes:
-      - node_memory:/node/shared/memory
-      - node_dreams:/node/runtime/dreams
+      - node_a_memory:/node/shared/memory
+      - node_a_dreams:/node/runtime/dreams
+
+  node-b:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.node
+    container_name: hyperspace-node-b
+    ports:
+      - "8770:8770"
+    environment:
+      - NODE_API_PORT=8770
+      - NODE_ID=node-b
+      - NODE_HOST=node-b
+      - OLLAMA_BASE_URL=http://ollama:11434
+      - DEFAULT_AGENT_MODEL=qwen2.5:7b
+      - DEFAULT_CODER_MODEL=qwen2.5-coder:7b
+      - DEFAULT_REASONER_MODEL=batiai/gemma4-12b:q4
+      - NODE_PEERS=node:8765
+      - GOSSIP_INTERVAL_SEC=30
+    restart: unless-stopped
+    depends_on:
+      ollama:
+        condition: service_healthy
+    networks:
+      - hyperspace-net
+    volumes:
+      - node_b_memory:/node/shared/memory
+      - node_b_dreams:/node/runtime/dreams
 
   authority:
     build:
@@ -162,19 +191,23 @@ services:
       - OLLAMA_BASE_URL=http://ollama:11434
       - CONTROL_PLANE_URL=http://control-plane:8768
       - AUTHORITY_URL=http://authority:8766
+      - NODE_URLS=http://node:8765,http://node-b:8770
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
     restart: unless-stopped
     depends_on:
       - ollama
       - control-plane
+      - node
     networks:
       - hyperspace-net
 
 volumes:
   ollama_models:
-  node_memory:
-  node_dreams:
+  node_a_memory:
+  node_a_dreams:
+  node_b_memory:
+  node_b_dreams:
   authority_catalog:
   authority_policy:
   worker_votes:

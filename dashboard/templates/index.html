@@ -9,16 +9,15 @@
   <style>
     body { background: #0f1117; color: #e2e8f0; }
     .card { background: #1a1d2e; border: 1px solid #2d3148; border-radius: 12px; }
-    .badge-healthy  { background: #064e3b; color: #34d399; }
-    .badge-running  { background: #1e3a5f; color: #60a5fa; }
-    .badge-stopped  { background: #450a0a; color: #f87171; }
-    .badge-unknown  { background: #292524; color: #a8a29e; }
-    .btn-restart { background: #1e3a5f; color: #60a5fa; }
-    .btn-stop    { background: #451a03; color: #fb923c; }
-    .btn-logs    { background: #1a1d2e; color: #a78bfa; border: 1px solid #4c1d95; }
-    ::-webkit-scrollbar { width: 4px; } 
-    ::-webkit-scrollbar-track { background: #1a1d2e; }
-    ::-webkit-scrollbar-thumb { background: #4c1d95; border-radius: 2px; }
+    .badge-healthy { background:#064e3b; color:#34d399; }
+    .badge-running { background:#1e3a5f; color:#60a5fa; }
+    .badge-stopped { background:#450a0a; color:#f87171; }
+    .btn-restart   { background:#1e3a5f; color:#60a5fa; }
+    .btn-stop      { background:#451a03; color:#fb923c; }
+    .btn-logs      { background:#1a1d2e; color:#a78bfa; border:1px solid #4c1d95; }
+    ::-webkit-scrollbar { width:4px; }
+    ::-webkit-scrollbar-track { background:#1a1d2e; }
+    ::-webkit-scrollbar-thumb { background:#4c1d95; border-radius:2px; }
   </style>
 </head>
 <body class="min-h-screen p-6">
@@ -27,10 +26,10 @@
   <div class="flex items-center justify-between mb-8">
     <div>
       <h1 class="text-2xl font-bold text-purple-400">⚡ HyperSpace Dashboard</h1>
-      <p class="text-slate-400 text-sm mt-1">AGI v5.9 — Swarm Control Panel</p>
+      <p class="text-slate-400 text-sm mt-1">AGI v6.0 — P2P Swarm Control Panel</p>
     </div>
     <div class="text-slate-500 text-xs">
-      Auto-refresh ogni 10s
+      Auto-refresh 10s
       <span class="ml-2 inline-block w-2 h-2 rounded-full bg-green-400 animate-pulse"></span>
     </div>
   </div>
@@ -38,35 +37,38 @@
   <!-- Container Status -->
   <section class="mb-8">
     <h2 class="text-lg font-semibold text-slate-300 mb-4">🐳 Container</h2>
-    <div id="status-grid"
-         hx-get="/partials/status"
-         hx-trigger="every 10s"
-         hx-swap="innerHTML">
+    <div id="status-grid" hx-get="/partials/status" hx-trigger="every 10s" hx-swap="innerHTML">
       {% include 'partials/status.html' %}
+    </div>
+  </section>
+
+  <!-- P2P Peer Map -->
+  <section class="mb-8">
+    <h2 class="text-lg font-semibold text-slate-300 mb-4">🕸️ Rete P2P — Peer Map</h2>
+    <div id="peers-section" hx-get="/partials/peers" hx-trigger="every 15s" hx-swap="innerHTML">
+      {% include 'partials/peers.html' %}
+    </div>
+  </section>
+
+  <!-- Dream Lab -->
+  <section class="mb-8">
+    <h2 class="text-lg font-semibold text-slate-300 mb-4">🌙 Dream Lab</h2>
+    <div id="dreams-section" hx-get="/partials/dreams" hx-trigger="every 8s" hx-swap="innerHTML">
+      {% include 'partials/dreams.html' %}
     </div>
   </section>
 
   <!-- Modelli Ollama -->
   <section class="mb-8">
     <h2 class="text-lg font-semibold text-slate-300 mb-4">🦙 Modelli Ollama</h2>
-    <div id="models-section"
-         hx-get="/partials/models"
-         hx-trigger="every 15s"
-         hx-swap="innerHTML">
+    <div id="models-section" hx-get="/partials/models" hx-trigger="every 15s" hx-swap="innerHTML">
       {% include 'partials/models.html' %}
     </div>
-
-    <!-- Pull modello -->
     <div class="card p-4 mt-4">
       <h3 class="text-sm font-semibold text-slate-300 mb-3">📥 Pull nuovo modello</h3>
-      <form hx-post="/ollama/pull"
-            hx-target="#pull-output"
-            hx-swap="innerHTML"
-            hx-encoding="application/x-www-form-urlencoded"
-            class="flex gap-3">
-        <input name="model"
-               type="text"
-               placeholder="es. qwen2.5:7b, gemma3:9b, phi3.5"
+      <form hx-post="/ollama/pull" hx-target="#pull-output" hx-swap="innerHTML"
+            hx-encoding="application/x-www-form-urlencoded" class="flex gap-3">
+        <input name="model" type="text" placeholder="es. qwen2.5:7b, gemma3:9b"
                class="flex-1 bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-purple-500">
         <button type="submit"
                 class="px-4 py-2 bg-purple-700 hover:bg-purple-600 text-white text-sm rounded-lg transition">
@@ -80,10 +82,7 @@
   <!-- Routing Stats -->
   <section class="mb-8">
     <h2 class="text-lg font-semibold text-slate-300 mb-4">📊 Routing Stats</h2>
-    <div id="stats-section"
-         hx-get="/partials/stats"
-         hx-trigger="every 10s"
-         hx-swap="innerHTML">
+    <div id="stats-section" hx-get="/partials/stats" hx-trigger="every 10s" hx-swap="innerHTML">
       {% include 'partials/stats.html' %}
     </div>
   </section>
@@ -95,15 +94,12 @@
       <div class="flex gap-2 flex-wrap mb-4">
         {% for svc in services %}
         <button class="px-3 py-1 text-xs rounded-lg btn-logs"
-                hx-get="/logs/{{ svc.name }}"
-                hx-target="#log-output"
-                hx-swap="innerHTML">
+                hx-get="/logs/{{ svc.name }}" hx-target="#log-output" hx-swap="innerHTML">
           {{ svc.emoji }} {{ svc.label }}
         </button>
         {% endfor %}
       </div>
-      <div id="log-output"
-           class="bg-slate-900 rounded-lg p-3 h-64 overflow-y-auto">
+      <div id="log-output" class="bg-slate-900 rounded-lg p-3 h-64 overflow-y-auto">
         <p class="text-slate-500 text-xs">Seleziona un servizio per vedere i log...</p>
       </div>
     </div>

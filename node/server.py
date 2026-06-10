@@ -1,18 +1,55 @@
-# HyperSpace-AGI v5.9 - Node Server (porta 8765)
+# HyperSpace-AGI v6.0 - Node Server con P2P Gossip
 from __future__ import annotations
+import os
+import time
 import uvicorn
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from shared.settings import settings
 from node.memory.tiered_store import TieredMemoryStore
 from node.runtime.agent_runtime import AgentRuntime
+from node.runtime.gossip_service import GossipService, PeerInfo
+from node.runtime.node_state import NodeStateManager, DreamEntry
+import uuid
 
-app = FastAPI(title='HyperSpace-AGI Node', version='0.9.0')
+NODE_ID   = os.getenv('NODE_ID', 'node-default')
+NODE_HOST = os.getenv('NODE_HOST', NODE_ID)   # docker service name = hostname
+NODE_PORT = int(os.getenv('NODE_API_PORT', '8765'))
 
-_memory = TieredMemoryStore()
-_agent = AgentRuntime(memory_store=_memory)
+_self_info = PeerInfo(
+    node_id = NODE_ID,
+    host    = NODE_HOST,
+    port    = NODE_PORT,
+    models  = os.getenv('DEFAULT_AGENT_MODEL', 'qwen2.5:7b').split(','),
+)
 
+_gossip  = GossipService(self_info=_self_info)
+_memory  = TieredMemoryStore()
+_agent   = AgentRuntime(memory_store=_memory)
+_state   = NodeStateManager(node_id=NODE_ID)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    await _gossip.start()
+    yield
+    await _gossip.stop()
+
+
+app = FastAPI(title='HyperSpace-AGI Node', version='6.0.0', lifespan=lifespan)
+
+
+# ── Health ────────────────────────────────────────────────────────────────────
+
+@app.get('/health')
+async def health() -> dict:
+    status = _state.get_status()
+    return {'status': 'ok', 'service': 'node', 'version': '6.0.0', **status}
+
+
+# ── Chat ──────────────────────────────────────────────────────────────────────
 
 class ChatRequest(BaseModel):
     session_id: str
@@ -21,13 +58,10 @@ class ChatRequest(BaseModel):
     system_prompt: str | None = None
 
 
-@app.get('/health')
-async def health() -> dict:
-    return {'status': 'ok', 'service': 'node', 'version': '0.9.0'}
-
-
 @app.post('/chat')
 async def chat(req: ChatRequest) -> dict:
+    _state.record_request()
+    _gossip.update_self_state('active', load=min(_state._request_count / 100, 1.0))
     try:
         response = await _agent.run(
             session_id=req.session_id, user_message=req.message,
@@ -37,6 +71,8 @@ async def chat(req: ChatRequest) -> dict:
     except Exception as e:
         return JSONResponse(status_code=500, content={'error': str(e)})
 
+
+# ── Memory ────────────────────────────────────────────────────────────────────
 
 @app.get('/memory/{session_id}')
 async def list_memory(session_id: str) -> dict:
@@ -59,9 +95,74 @@ async def list_contested() -> dict:
 @app.post('/memory/prune')
 async def prune_memory(threshold: float = 0.25) -> dict:
     pruned_score = await _memory.prune_low_score_speculative(threshold)
-    pruned_ttl = await _memory.prune_expired_ttl()
+    pruned_ttl   = await _memory.prune_expired_ttl()
     return {'pruned_low_score': pruned_score, 'pruned_ttl': pruned_ttl}
 
 
+# ── P2P Gossip ────────────────────────────────────────────────────────────────
+
+@app.post('/gossip/heartbeat')
+async def gossip_heartbeat(peer: dict) -> dict:
+    """Riceve heartbeat da un peer e risponde con il proprio stato + peer table."""
+    _gossip.register_peer(peer)
+    return {
+        'node_id': NODE_ID,
+        'state':   _state.state,
+        'load':    _state.load,
+        'peers':   [p.to_dict() for p in _gossip.get_peers()],
+    }
+
+
+@app.get('/gossip/peers')
+async def list_peers() -> dict:
+    """Lista tutti i peer noti con il loro stato."""
+    all_peers  = _gossip.get_all_peers()
+    alive      = [p for p in all_peers if p.is_alive()]
+    return {
+        'self':       _self_info.to_dict(),
+        'peers':      [p.to_dict() for p in all_peers],
+        'alive_count': len(alive),
+        'total':      len(all_peers),
+    }
+
+
+# ── Dream API ─────────────────────────────────────────────────────────────────
+
+@app.get('/dreams')
+async def list_dreams() -> dict:
+    """Stato dei sogni attivi e storia recente."""
+    return _state.get_status()
+
+
+@app.post('/dreams/add')
+async def add_dream(content: str, score: float = 0.75) -> dict:
+    """Aggiunge un nuovo sogno in pending (per test / worker inject)."""
+    dream = DreamEntry(
+        dream_id = str(uuid.uuid4())[:8],
+        content  = content,
+        score    = score,
+    )
+    _state.add_dream(dream)
+    _gossip.update_self_state('dreaming')
+    return dream.to_dict()
+
+
+@app.post('/dreams/{dream_id}/vote')
+async def vote_dream(dream_id: str) -> dict:
+    result = _state.vote_dream(dream_id)
+    if result is None:
+        return JSONResponse(status_code=404, content={'error': 'dream not found'})
+    return result.to_dict()
+
+
+@app.post('/dreams/{dream_id}/retract')
+async def retract_dream(dream_id: str) -> dict:
+    result = _state.resolve_dream(dream_id, 'retracted')
+    if result is None:
+        return JSONResponse(status_code=404, content={'error': 'dream not found'})
+    _gossip.update_self_state('active')
+    return result.to_dict()
+
+
 if __name__ == '__main__':
-    uvicorn.run('node.server:app', host='0.0.0.0', port=settings.node_api_port, reload=False)
+    uvicorn.run('node.server:app', host='0.0.0.0', port=NODE_PORT, reload=False)

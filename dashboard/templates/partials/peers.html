@@ -1,0 +1,26 @@
+<!-- P2P Peer Map partial -->
+{% if peers %}
+<div class="grid grid-cols-2 md:grid-cols-3 gap-3">
+  {% for peer in peers %}
+  <div class="card p-3 {% if not peer.alive %}opacity-40{% endif %}">
+    <div class="flex items-center gap-2 mb-2">
+      <span class="w-2 h-2 rounded-full {% if peer.alive %}bg-green-400{% else %}bg-red-400{% endif %}"></span>
+      <span class="font-mono text-xs text-slate-300">{{ peer.node_id }}</span>
+    </div>
+    <div class="text-xs text-slate-500 space-y-0.5">
+      <div>{{ peer.host }}:{{ peer.port }}</div>
+      <div class="flex items-center gap-1">
+        <span>{% if peer.state == 'dreaming' %}🌀{% elif peer.state == 'sleeping' %}😴{% else %}⚡{% endif %}</span>
+        <span>{{ peer.state }}</span>
+        <span class="ml-auto">load: {{ (peer.load * 100) | int }}%</span>
+      </div>
+      {% if peer.models %}
+      <div class="text-purple-400 truncate">{{ peer.models | join(', ') }}</div>
+      {% endif %}
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<div class="card p-4 text-slate-600 text-sm">Nessun peer P2P scoperto ancora — avvia node-b per vedere la rete.</div>
+{% endif %}
