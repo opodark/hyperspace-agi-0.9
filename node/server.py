@@ -1,7 +1,7 @@
 # HyperSpace-AGI v6.0 - Node Server con P2P Gossip
 from __future__ import annotations
 import os
-import time
+import uuid
 import uvicorn
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
@@ -12,10 +12,9 @@ from node.memory.tiered_store import TieredMemoryStore
 from node.runtime.agent_runtime import AgentRuntime
 from node.runtime.gossip_service import GossipService, PeerInfo
 from node.runtime.node_state import NodeStateManager, DreamEntry
-import uuid
 
 NODE_ID   = os.getenv('NODE_ID', 'node-default')
-NODE_HOST = os.getenv('NODE_HOST', NODE_ID)   # docker service name = hostname
+NODE_HOST = os.getenv('NODE_HOST', NODE_ID)
 NODE_PORT = int(os.getenv('NODE_API_PORT', '8765'))
 
 _self_info = PeerInfo(
@@ -25,10 +24,10 @@ _self_info = PeerInfo(
     models  = os.getenv('DEFAULT_AGENT_MODEL', 'qwen2.5:7b').split(','),
 )
 
-_gossip  = GossipService(self_info=_self_info)
-_memory  = TieredMemoryStore()
-_agent   = AgentRuntime(memory_store=_memory)
-_state   = NodeStateManager(node_id=NODE_ID)
+_gossip = GossipService(self_info=_self_info)
+_memory = TieredMemoryStore()
+_agent  = AgentRuntime(memory_store=_memory)
+_state  = NodeStateManager(node_id=NODE_ID)
 
 
 @asynccontextmanager
@@ -103,7 +102,6 @@ async def prune_memory(threshold: float = 0.25) -> dict:
 
 @app.post('/gossip/heartbeat')
 async def gossip_heartbeat(peer: dict) -> dict:
-    """Riceve heartbeat da un peer e risponde con il proprio stato + peer table."""
     _gossip.register_peer(peer)
     return {
         'node_id': NODE_ID,
@@ -115,14 +113,13 @@ async def gossip_heartbeat(peer: dict) -> dict:
 
 @app.get('/gossip/peers')
 async def list_peers() -> dict:
-    """Lista tutti i peer noti con il loro stato."""
-    all_peers  = _gossip.get_all_peers()
-    alive      = [p for p in all_peers if p.is_alive()]
+    alive = _gossip.get_peers()
+    all_p = _gossip.get_all_peers()
     return {
-        'self':       _self_info.to_dict(),
-        'peers':      [p.to_dict() for p in all_peers],
+        'self':        _gossip.self_to_dict(),   # usa self_to_dict → alive=True
+        'peers':       [p.to_dict() for p in all_p],
         'alive_count': len(alive),
-        'total':      len(all_peers),
+        'total':       len(all_p),
     }
 
 
@@ -130,13 +127,11 @@ async def list_peers() -> dict:
 
 @app.get('/dreams')
 async def list_dreams() -> dict:
-    """Stato dei sogni attivi e storia recente."""
     return _state.get_status()
 
 
 @app.post('/dreams/add')
 async def add_dream(content: str, score: float = 0.75) -> dict:
-    """Aggiunge un nuovo sogno in pending (per test / worker inject)."""
     dream = DreamEntry(
         dream_id = str(uuid.uuid4())[:8],
         content  = content,

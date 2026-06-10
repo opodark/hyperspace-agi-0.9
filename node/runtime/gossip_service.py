@@ -1,5 +1,5 @@
 # HyperSpace-AGI v6.0 - GossipService
-# Ciclo 30s: ogni nodo fa ping ai peer noti e propaga la peer_table
+# Fix: self.alive, peer dedup normalizzato su node_id
 from __future__ import annotations
 import asyncio
 import logging
@@ -11,20 +11,20 @@ import httpx
 
 logger = logging.getLogger('gossip')
 
-GOSSIP_INTERVAL   = int(os.getenv('GOSSIP_INTERVAL_SEC', '30'))
-GOSSIP_TIMEOUT    = 5.0
-PEER_TTL_SEC      = 90   # nodo rimosso se silenzioso per 90s
+GOSSIP_INTERVAL = int(os.getenv('GOSSIP_INTERVAL_SEC', '30'))
+GOSSIP_TIMEOUT  = 5.0
+PEER_TTL_SEC    = 90
 
 
 @dataclass
 class PeerInfo:
-    node_id:    str
-    host:       str
-    port:       int
-    models:     list[str]  = field(default_factory=list)
-    load:       float      = 0.0          # 0.0 - 1.0
-    state:      str        = 'active'     # active | sleeping | dreaming
-    last_seen:  float      = field(default_factory=time.time)
+    node_id:   str
+    host:      str
+    port:      int
+    models:    list[str] = field(default_factory=list)
+    load:      float     = 0.0
+    state:     str       = 'active'
+    last_seen: float     = field(default_factory=time.time)
 
     @property
     def url(self) -> str:
@@ -47,19 +47,17 @@ class PeerInfo:
 
 
 class GossipService:
-    """
-    Gestisce il discovery e la propagazione delle info di stato tra nodi.
-    Ogni nodo conosce i suoi peer via env NODE_PEERS=host:port,host:port
-    e li pinga ogni GOSSIP_INTERVAL secondi.
-    """
-
     def __init__(self, self_info: PeerInfo):
         self.self_info = self_info
-        self._peers: dict[str, PeerInfo] = {}   # node_id -> PeerInfo
+        self._peers: dict[str, PeerInfo] = {}
         self._task: Optional[asyncio.Task] = None
         self._load_initial_peers()
 
     def _load_initial_peers(self) -> None:
+        """Carica peer da NODE_PEERS=host:port,host:port
+        Nota: il node_id reale arriva al primo heartbeat.
+        Usiamo host:port come chiave temporanea.
+        """
         raw = os.getenv('NODE_PEERS', '')
         if not raw:
             return
@@ -70,11 +68,12 @@ class GossipService:
             try:
                 host, port_s = entry.rsplit(':', 1)
                 port = int(port_s)
-                peer_id = f'{host}:{port}'
-                self._peers[peer_id] = PeerInfo(
-                    node_id=peer_id, host=host, port=port
+                # chiave temporanea = host:port, verrà sostituita al primo heartbeat
+                tmp_id = f'__bootstrap_{host}:{port}'
+                self._peers[tmp_id] = PeerInfo(
+                    node_id=tmp_id, host=host, port=port
                 )
-                logger.info(f'Gossip: peer iniziale registrato {peer_id}')
+                logger.info(f'Gossip: bootstrap peer {host}:{port}')
             except ValueError:
                 logger.warning(f'Gossip: entry peer non valida: {entry}')
 
@@ -85,40 +84,66 @@ class GossipService:
         return list(self._peers.values())
 
     def register_peer(self, info: dict) -> None:
-        """Registra o aggiorna un peer dal suo heartbeat."""
-        node_id = info.get('node_id')
+        """Registra/aggiorna peer usando node_id come chiave canonica.
+        Rimuove eventuali entry bootstrap duplicate (host:port).
+        """
+        node_id = info.get('node_id', '').strip()
         if not node_id or node_id == self.self_info.node_id:
             return
+
+        host = info.get('host', '')
+        port = int(info.get('port', 8765))
+
+        # rimuovi entry bootstrap per questo host:port se esiste
+        bootstrap_key = f'__bootstrap_{host}:{port}'
+        if bootstrap_key in self._peers:
+            del self._peers[bootstrap_key]
+            logger.debug(f'Gossip: rimossa entry bootstrap {bootstrap_key}')
+
         existing = self._peers.get(node_id)
         if existing:
+            existing.host      = host or existing.host
+            existing.port      = port or existing.port
             existing.models    = info.get('models', existing.models)
             existing.load      = info.get('load', existing.load)
             existing.state     = info.get('state', existing.state)
             existing.last_seen = time.time()
         else:
             self._peers[node_id] = PeerInfo(
-                node_id  = node_id,
-                host     = info.get('host', ''),
-                port     = int(info.get('port', 8765)),
-                models   = info.get('models', []),
-                load     = info.get('load', 0.0),
-                state    = info.get('state', 'active'),
-                last_seen= time.time(),
+                node_id   = node_id,
+                host      = host,
+                port      = port,
+                models    = info.get('models', []),
+                load      = info.get('load', 0.0),
+                state     = info.get('state', 'active'),
+                last_seen = time.time(),
             )
-            logger.info(f'Gossip: nuovo peer scoperto {node_id}')
+            logger.info(f'Gossip: nuovo peer {node_id} @ {host}:{port}')
 
     def update_self_state(self, state: str, load: float = 0.0) -> None:
         self.self_info.state = state
         self.self_info.load  = load
 
+    def self_to_dict(self) -> dict:
+        """Serializza self con alive=True sempre (non passa per is_alive)."""
+        return {
+            'node_id':   self.self_info.node_id,
+            'host':      self.self_info.host,
+            'port':      self.self_info.port,
+            'models':    self.self_info.models,
+            'load':      self.self_info.load,
+            'state':     self.self_info.state,
+            'last_seen': time.time(),
+            'alive':     True,
+        }
+
     async def _ping_peer(self, peer: PeerInfo) -> bool:
         try:
             async with httpx.AsyncClient(timeout=GOSSIP_TIMEOUT) as client:
-                payload = self.self_info.to_dict()
+                payload = self.self_to_dict()
                 r = await client.post(f'{peer.url}/gossip/heartbeat', json=payload)
                 if r.status_code == 200:
                     data = r.json()
-                    # propaga i peer che il peer conosce
                     for p in data.get('peers', []):
                         self.register_peer(p)
                     peer.last_seen = time.time()
@@ -139,14 +164,13 @@ class GossipService:
         )
         alive = sum(1 for r in results if r is True)
         logger.debug(f'Gossip round: {alive}/{len(peers)} peer alive')
-        # pulizia peer scaduti
         dead = [nid for nid, p in self._peers.items() if not p.is_alive()]
         for nid in dead:
             logger.info(f'Gossip: peer scaduto rimosso {nid}')
             del self._peers[nid]
 
     async def start(self) -> None:
-        logger.info(f'GossipService avviato - node_id={self.self_info.node_id}')
+        logger.info(f'GossipService avviato — node_id={self.self_info.node_id}')
         self._task = asyncio.create_task(self._loop())
 
     async def _loop(self) -> None:
